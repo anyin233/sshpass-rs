@@ -158,7 +158,11 @@ impl PtySession {
                 poll_ready_fds(master_fd, stdin_fd, self.legacy_stdio_pty && forward_stdin)?;
 
             if master_ready {
-                let count = read_retrying(reader.as_mut(), &mut buffer)?;
+                let count = match read_retrying(reader.as_mut(), &mut buffer) {
+                    Ok(count) => count,
+                    Err(SshpassError::Io(ref err)) if err.raw_os_error() == Some(libc::EIO) => 0,
+                    Err(err) => return Err(err),
+                };
                 if count == 0 {
                     drop(reader);
                     drop(writer);
@@ -256,7 +260,11 @@ fn poll_ready_fds(
 
     let result = unsafe { libc::poll(poll_fds.as_mut_ptr(), poll_fds.len() as libc::nfds_t, 100) };
     if result < 0 {
-        return Err(SshpassError::Io(std::io::Error::last_os_error()));
+        let err = std::io::Error::last_os_error();
+        if err.kind() == std::io::ErrorKind::Interrupted {
+            return Ok((false, false));
+        }
+        return Err(SshpassError::Io(err));
     }
 
     let master_ready = (poll_fds[0].revents & (libc::POLLIN | libc::POLLHUP | libc::POLLERR)) != 0;
