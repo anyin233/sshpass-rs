@@ -36,6 +36,9 @@ pub struct Cli {
     #[arg(long = "list")]
     pub list: bool,
 
+    #[arg(long = "help", short = 'h')]
+    pub help: bool,
+
     #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
     pub command: Vec<String>,
 }
@@ -89,6 +92,187 @@ impl Cli {
         self.store.is_some() || self.delete.is_some() || self.list
     }
 
+    /// Prints context-sensitive help based on which flags are present.
+    ///
+    /// Params:
+    /// - None.
+    ///
+    /// Returns:
+    /// - Nothing. Writes help text to stdout.
+    pub fn print_help(&self) {
+        if self.store.is_some() {
+            Self::print_store_help();
+        } else if self.delete.is_some() {
+            Self::print_delete_help();
+        } else if self.list {
+            Self::print_list_help();
+        } else if self.use_keychain || self.key.is_some() {
+            Self::print_keychain_help();
+        } else {
+            Self::print_general_help();
+        }
+    }
+
+    fn print_general_help() {
+        println!(
+            "\
+sshpass-rs — non-interactive SSH password provider
+
+USAGE:
+    sshpass-rs [OPTIONS] <command> [args...]
+    sshpass-rs --store <key>
+    sshpass-rs --delete <key>
+    sshpass-rs --list
+
+PASSWORD SOURCE FLAGS (mutually exclusive):
+    -p <password>    Pass the password directly as an argument
+    -f <filename>    Read the password from a file (first line)
+    -d <number>      Read the password from a file descriptor
+    -e               Read the password from the SSHPASS environment variable
+    -k               Look up the password from the configured backend,
+                     auto-deriving the key from the wrapped SSH command
+
+OTHER FLAGS:
+    -P <prompt>      Prompt pattern to match (default: \"assword:\")
+    -v               Verbose mode; prints diagnostic output to stderr
+    --key <value>    Explicit key name to use with -k (overrides auto-detection)
+    -h, --help       Show this help message
+
+KEYCHAIN MANAGEMENT (standalone, no wrapped command needed):
+    --store <key>    Prompt for a password and store it under <key>
+    --delete <key>   Delete the stored entry for <key>
+    --list           List all entries managed by sshpass-rs
+
+BACKEND SELECTION (environment variables):
+    SSHPASS_RS_BACKEND   Set to \"op\" or \"1password\" for 1Password backend.
+                         Default: macOS Keychain.
+    SSHPASS_RS_VAULT     1Password vault to use (optional, default vault if unset).
+
+EXAMPLES:
+    sshpass-rs -p mypass ssh user@host
+    sshpass-rs -k ssh user@host
+    sshpass-rs --store user@host
+    sshpass-rs --list
+    SSHPASS_RS_BACKEND=op sshpass-rs -k ssh user@host
+
+Use --store --help, --list --help, or -k --help for command-specific help."
+        );
+    }
+
+    fn print_store_help() {
+        println!(
+            "\
+sshpass-rs --store — store a password in the configured backend
+
+USAGE:
+    sshpass-rs --store <key>
+
+DESCRIPTION:
+    Prompts for a password interactively and stores it under <key>.
+    The key is typically in the format \"user@host\".
+
+    The storage backend is determined by the SSHPASS_RS_BACKEND environment
+    variable. Default: macOS Keychain. Set to \"op\" for 1Password.
+
+OPTIONS:
+    -v               Verbose mode; shows which backend is used
+    -h, --help       Show this help message
+
+ENVIRONMENT:
+    SSHPASS_RS_BACKEND   \"op\" or \"1password\" → 1Password; unset → macOS Keychain
+    SSHPASS_RS_VAULT     1Password vault name (optional)
+
+EXAMPLES:
+    sshpass-rs --store user@host
+    SSHPASS_RS_BACKEND=op sshpass-rs --store user@host"
+        );
+    }
+
+    fn print_delete_help() {
+        println!(
+            "\
+sshpass-rs --delete — remove a stored password
+
+USAGE:
+    sshpass-rs --delete <key>
+
+DESCRIPTION:
+    Deletes the password stored under <key> from the configured backend.
+
+OPTIONS:
+    -v               Verbose mode; shows which backend is used
+    -h, --help       Show this help message
+
+ENVIRONMENT:
+    SSHPASS_RS_BACKEND   \"op\" or \"1password\" → 1Password; unset → macOS Keychain
+    SSHPASS_RS_VAULT     1Password vault name (optional)
+
+EXAMPLES:
+    sshpass-rs --delete user@host
+    SSHPASS_RS_BACKEND=op sshpass-rs --delete user@host"
+        );
+    }
+
+    fn print_list_help() {
+        println!(
+            "\
+sshpass-rs --list — list stored passwords
+
+USAGE:
+    sshpass-rs --list
+
+DESCRIPTION:
+    Lists all password entries managed by sshpass-rs in the configured backend.
+    Only entries tagged/indexed by sshpass-rs are shown.
+
+OPTIONS:
+    -v               Verbose mode; shows which backend is used
+    -h, --help       Show this help message
+
+ENVIRONMENT:
+    SSHPASS_RS_BACKEND   \"op\" or \"1password\" → 1Password; unset → macOS Keychain
+    SSHPASS_RS_VAULT     1Password vault name (optional)
+
+EXAMPLES:
+    sshpass-rs --list
+    SSHPASS_RS_BACKEND=op sshpass-rs --list"
+        );
+    }
+
+    fn print_keychain_help() {
+        println!(
+            "\
+sshpass-rs -k — use stored password for SSH authentication
+
+USAGE:
+    sshpass-rs -k <command> [args...]
+    sshpass-rs -k --key <name> <command> [args...]
+
+DESCRIPTION:
+    Looks up the password from the configured backend and uses it to
+    authenticate the wrapped SSH command. The key is auto-derived from
+    the SSH arguments (user@host) unless --key is specified.
+
+    If the key is not found, falls back to an interactive password prompt
+    and offers to save the password for future use.
+
+OPTIONS:
+    --key <value>    Use an explicit key name instead of auto-deriving
+    -P <prompt>      Prompt pattern to match (default: \"assword:\")
+    -v               Verbose mode; shows backend queries and results
+    -h, --help       Show this help message
+
+ENVIRONMENT:
+    SSHPASS_RS_BACKEND   \"op\" or \"1password\" → 1Password; unset → macOS Keychain
+    SSHPASS_RS_VAULT     1Password vault name (optional)
+
+EXAMPLES:
+    sshpass-rs -k ssh user@host
+    sshpass-rs -k --key myserver ssh root@10.0.0.1
+    SSHPASS_RS_BACKEND=op sshpass-rs -k ssh user@host"
+        );
+    }
+
     /// Validates sshpass compatibility rules after clap parsing.
     ///
     /// Params:
@@ -115,7 +299,7 @@ impl Cli {
             ));
         }
 
-        if !self.is_standalone() && self.command.is_empty() {
+        if !self.is_standalone() && !self.help && self.command.is_empty() {
             return Err(("missing wrapped command".to_string(), 1));
         }
 

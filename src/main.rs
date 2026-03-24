@@ -35,6 +35,11 @@ fn run() -> i32 {
         }
     };
 
+    if cli.help {
+        cli.print_help();
+        return SshpassExitCode::Success.into();
+    }
+
     let keychain_manager = build_keychain_manager(cli.verbose);
     if let Some(exit_code) = handle_standalone(&cli, &keychain_manager, cli.verbose) {
         return exit_code;
