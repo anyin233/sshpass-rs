@@ -1,0 +1,4 @@
+--- Signal byte constants ---
+CTRL_C_BYTE = 0x03 (ASCII ETX)
+CTRL_Z_BYTE = 0x1a (ASCII SUB)
+--- Verified by test_signal_byte_constants ---

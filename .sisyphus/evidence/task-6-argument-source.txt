@@ -1,0 +1,23 @@
+Task 6: PasswordSource trait and -p argument source
+
+## Tests Run
+cargo test password
+
+## Results
+test password::tests::test_argument_source ... ok
+test password::tests::test_resolver_argument ... ok
+test password::tests::test_argument_uses_secret_string ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 34 filtered out
+
+## Build
+cargo build: Finished `dev` profile [unoptimized + debuginfo]
+
+## Files Modified
+- src/password.rs
+
+## Implementation
+- PasswordSource trait with fn resolve(&self) -> Result<SecretString, SshpassError>
+- ArgumentPassword struct implementing PasswordSource
+- PasswordResolver enum with Argument/File/FileDescriptor/Environment/Keychain/Stdin variants
+- Only Argument variant implemented; others return unimplemented!()

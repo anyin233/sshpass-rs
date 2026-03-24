@@ -1,0 +1,18 @@
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 8 tests
+test keychain::tests::test_inmemory_delete ... ok
+test keychain::tests::test_inmemory_list_empty ... ok
+test keychain::tests::test_inmemory_list ... ok
+test keychain::tests::test_inmemory_store_and_get ... ok
+test keychain::tests::test_inmemory_get_nonexistent ... ok
+test keychain::tests::test_manager_from_env_with_file ... ok
+test keychain::tests::test_file_backend_persistence ... ok
+test keychain::tests::test_file_backend_list ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 39 filtered out; finished in 0.01s
+
