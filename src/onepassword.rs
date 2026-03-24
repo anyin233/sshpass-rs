@@ -239,6 +239,8 @@ impl KeychainBackend for OnePasswordBackend {
             "fields": [{
                 "id": "password",
                 "type": "CONCEALED",
+                "purpose": "PASSWORD",
+                "label": "password",
                 "value": password.expose_secret(),
             }],
         });
