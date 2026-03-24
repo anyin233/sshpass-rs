@@ -40,7 +40,10 @@ fn run() -> i32 {
         return SshpassExitCode::Success.into();
     }
 
-    let keychain_manager = build_keychain_manager(cli.verbose);
+    let keychain_manager = match build_keychain_manager(cli.verbose) {
+        Ok(manager) => manager,
+        Err(err) => return report_runtime_error(err),
+    };
     if let Some(exit_code) = handle_standalone(&cli, &keychain_manager, cli.verbose) {
         return exit_code;
     }
@@ -84,8 +87,8 @@ fn run() -> i32 {
 ///
 /// Returns:
 /// - A keychain manager backed by either the file backend or the real OS keychain.
-fn build_keychain_manager(verbose: bool) -> KeychainManager {
-    KeychainManager::new(build_keychain_backend(verbose))
+fn build_keychain_manager(verbose: bool) -> Result<KeychainManager, SshpassError> {
+    Ok(KeychainManager::new(build_keychain_backend(verbose)?))
 }
 
 /// Creates a fresh keychain backend matching the active environment configuration.
@@ -95,7 +98,7 @@ fn build_keychain_manager(verbose: bool) -> KeychainManager {
 ///
 /// Returns:
 /// - A boxed keychain backend for standalone operations or password resolution.
-fn build_keychain_backend(verbose: bool) -> Box<dyn KeychainBackend> {
+fn build_keychain_backend(verbose: bool) -> Result<Box<dyn KeychainBackend>, SshpassError> {
     if verbose {
         eprintln!("SSHPASS_RS: checking SSHPASS_RS_BACKEND environment variable");
     }
@@ -109,7 +112,12 @@ fn build_keychain_backend(verbose: bool) -> Box<dyn KeychainBackend> {
                     vault.as_deref().unwrap_or("default")
                 );
             }
-            return Box::new(OnePasswordBackend::new(vault, verbose));
+            #[cfg(not(target_os = "macos"))]
+            eprintln!(
+                "SSHPASS_RS: non-macOS detected. Ensure the 1Password CLI (op) is installed: \
+                 https://1password.com/downloads/command-line/"
+            );
+            return Ok(Box::new(OnePasswordBackend::new(vault, verbose)));
         }
 
         if verbose {
@@ -121,12 +129,22 @@ fn build_keychain_backend(verbose: bool) -> Box<dyn KeychainBackend> {
     }
 
     match std::env::var("SSHPASS_RS_TEST_KEYCHAIN_FILE") {
-        Ok(path) => Box::new(FileKeychainBackend::new(path)),
+        Ok(path) => Ok(Box::new(FileKeychainBackend::new(path))),
         Err(_) => {
-            if verbose {
-                eprintln!("SSHPASS_RS: selected OS keychain backend");
+            #[cfg(not(target_os = "macos"))]
+            return Err(SshpassError::KeychainAccess(
+                "macOS Keychain is not available on this platform. \
+                 Use SSHPASS_RS_BACKEND=op with 1Password CLI instead."
+                    .to_string(),
+            ));
+
+            #[cfg(target_os = "macos")]
+            {
+                if verbose {
+                    eprintln!("SSHPASS_RS: selected OS keychain backend");
+                }
+                Ok(Box::new(RealKeychainBackend::new(verbose)))
             }
-            Box::new(RealKeychainBackend::new(verbose))
         }
     }
 }
@@ -217,7 +235,7 @@ fn resolve_password(cli: &Cli, verbose: bool) -> Result<secrecy::SecretString, S
 
     match resolver {
         PasswordResolver::Keychain(_) => {
-            resolver.resolve_with_keychain(build_keychain_backend(verbose), verbose)
+            resolver.resolve_with_keychain(build_keychain_backend(verbose)?, verbose)
         }
         _ => resolver.resolve(),
     }
