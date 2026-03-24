@@ -1,7 +1,10 @@
-use secrecy::SecretString;
+use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
+use std::io::{ErrorKind, Write};
+use std::process::{Command, Stdio};
 
 use crate::error::SshpassError;
+use crate::keychain::KeychainBackend;
 
 /// Represents a single item from `op item list --format json` output.
 ///
@@ -110,6 +113,151 @@ pub fn parse_item_password(json: &str) -> Result<SecretString, SshpassError> {
         "no password field found in 1Password item '{}'",
         detail.title
     )))
+}
+
+pub struct OnePasswordBackend {
+    vault: Option<String>,
+    op_path: String,
+}
+
+impl OnePasswordBackend {
+    pub fn new(vault: Option<String>) -> Self {
+        Self {
+            vault,
+            op_path: "op".to_string(),
+        }
+    }
+
+    pub fn with_op_path(vault: Option<String>, op_path: String) -> Self {
+        Self { vault, op_path }
+    }
+
+    fn append_vault_args<'a>(&'a self, args: &mut Vec<&'a str>) {
+        if let Some(vault) = self.vault.as_deref() {
+            args.push("--vault");
+            args.push(vault);
+        }
+    }
+
+    fn run_op(&self, args: &[&str]) -> Result<String, SshpassError> {
+        let output = Command::new(&self.op_path)
+            .args(args)
+            .output()
+            .map_err(|err| match err.kind() {
+                ErrorKind::NotFound => SshpassError::KeychainAccess(
+                    "1Password CLI (op) not found. Install from https://1password.com/downloads/command-line/".to_string(),
+                ),
+                _ => SshpassError::KeychainAccess(format!("failed to run op: {err}")),
+            })?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            return Err(SshpassError::KeychainAccess(format!("op failed: {stderr}")));
+        }
+
+        String::from_utf8(output.stdout).map_err(|err| {
+            SshpassError::KeychainAccess(format!("op returned non-UTF-8 stdout: {err}"))
+        })
+    }
+
+    fn run_op_with_stdin(&self, args: &[&str], stdin_data: &str) -> Result<String, SshpassError> {
+        let mut child = Command::new(&self.op_path)
+            .args(args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|err| match err.kind() {
+                ErrorKind::NotFound => SshpassError::KeychainAccess(
+                    "1Password CLI (op) not found. Install from https://1password.com/downloads/command-line/".to_string(),
+                ),
+                _ => SshpassError::KeychainAccess(format!("failed to run op: {err}")),
+            })?;
+
+        if let Some(mut stdin) = child.stdin.take() {
+            // Write secrets through stdin so they never appear in process args.
+            stdin.write_all(stdin_data.as_bytes()).map_err(|err| {
+                SshpassError::KeychainAccess(format!("failed to write op stdin: {err}"))
+            })?;
+        }
+
+        let output = child
+            .wait_with_output()
+            .map_err(|err| SshpassError::KeychainAccess(format!("failed to wait for op: {err}")))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            return Err(SshpassError::KeychainAccess(format!("op failed: {stderr}")));
+        }
+
+        String::from_utf8(output.stdout).map_err(|err| {
+            SshpassError::KeychainAccess(format!("op returned non-UTF-8 stdout: {err}"))
+        })
+    }
+}
+
+impl KeychainBackend for OnePasswordBackend {
+    fn store(&self, key: &str, password: &SecretString) -> Result<(), SshpassError> {
+        let payload = serde_json::json!({
+            "title": key,
+            "category": "PASSWORD",
+            "tags": ["sshpass-rs"],
+            "fields": [{
+                "id": "password",
+                "type": "CONCEALED",
+                "value": password.expose_secret(),
+            }],
+        });
+        let stdin_data = serde_json::to_string(&payload).map_err(|err| {
+            SshpassError::KeychainAccess(format!("failed to serialize 1Password item: {err}"))
+        })?;
+
+        let mut args = vec!["item", "create", "-", "--format", "json"];
+        self.append_vault_args(&mut args);
+        self.run_op_with_stdin(&args, &stdin_data)?;
+        Ok(())
+    }
+
+    fn get(&self, key: &str) -> Result<SecretString, SshpassError> {
+        let mut list_args = vec!["item", "list", "--tags", "sshpass-rs", "--format", "json"];
+        self.append_vault_args(&mut list_args);
+        let list_output = self.run_op(&list_args)?;
+        let items = parse_item_list(&list_output)?;
+        let item_id = items
+            .iter()
+            .find(|item| item.title == key)
+            .map(|item| item.id.as_str())
+            .ok_or_else(|| SshpassError::KeychainAccess(format!("key not found: {key}")))?;
+
+        let mut get_args = vec!["item", "get", item_id, "--format", "json"];
+        self.append_vault_args(&mut get_args);
+        let item_output = self.run_op(&get_args)?;
+        parse_item_password(&item_output)
+    }
+
+    fn delete(&self, key: &str) -> Result<(), SshpassError> {
+        let mut list_args = vec!["item", "list", "--tags", "sshpass-rs", "--format", "json"];
+        self.append_vault_args(&mut list_args);
+        let list_output = self.run_op(&list_args)?;
+        let items = parse_item_list(&list_output)?;
+        let item_id = items
+            .iter()
+            .find(|item| item.title == key)
+            .map(|item| item.id.as_str())
+            .ok_or_else(|| SshpassError::KeychainAccess(format!("key not found: {key}")))?;
+
+        let mut delete_args = vec!["item", "delete", item_id];
+        self.append_vault_args(&mut delete_args);
+        self.run_op(&delete_args)?;
+        Ok(())
+    }
+
+    fn list(&self) -> Result<Vec<String>, SshpassError> {
+        let mut args = vec!["item", "list", "--tags", "sshpass-rs", "--format", "json"];
+        self.append_vault_args(&mut args);
+        let output = self.run_op(&args)?;
+        parse_item_titles(&output)
+    }
 }
 
 #[cfg(test)]
