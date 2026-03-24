@@ -15,10 +15,16 @@ pub trait KeychainBackend {
     fn list(&self) -> Result<Vec<String>, SshpassError>;
 }
 
-pub struct RealKeychainBackend;
+pub struct RealKeychainBackend {
+    verbose: bool,
+}
 
 impl RealKeychainBackend {
     const INDEX_KEY: &'static str = "__sshpass_rs_index__";
+
+    pub fn new(verbose: bool) -> Self {
+        Self { verbose }
+    }
 
     fn entry(key: &str) -> Result<keyring::Entry, SshpassError> {
         keyring::Entry::new(SERVICE_NAME, key)
@@ -50,6 +56,10 @@ impl RealKeychainBackend {
 
 impl KeychainBackend for RealKeychainBackend {
     fn store(&self, key: &str, password: &SecretString) -> Result<(), SshpassError> {
+        if self.verbose {
+            eprintln!("SSHPASS_RS: storing key '{}' in OS keychain", key);
+        }
+
         Self::entry(key)?
             .set_password(password.expose_secret())
             .map_err(|e| SshpassError::KeychainAccess(format!("failed to store: {}", e)))?;
@@ -63,6 +73,10 @@ impl KeychainBackend for RealKeychainBackend {
     }
 
     fn get(&self, key: &str) -> Result<SecretString, SshpassError> {
+        if self.verbose {
+            eprintln!("SSHPASS_RS: querying OS keychain for key '{}'", key);
+        }
+
         match Self::entry(key)?.get_password() {
             Ok(pw) => Ok(SecretString::from(pw)),
             Err(keyring::Error::NoEntry) => Err(SshpassError::KeychainAccess(format!(
@@ -77,6 +91,10 @@ impl KeychainBackend for RealKeychainBackend {
     }
 
     fn delete(&self, key: &str) -> Result<(), SshpassError> {
+        if self.verbose {
+            eprintln!("SSHPASS_RS: deleting key '{}' from OS keychain", key);
+        }
+
         match Self::entry(key)?.delete_credential() {
             Ok(()) => {}
             Err(keyring::Error::NoEntry) => {
@@ -99,6 +117,10 @@ impl KeychainBackend for RealKeychainBackend {
     }
 
     fn list(&self) -> Result<Vec<String>, SshpassError> {
+        if self.verbose {
+            eprintln!("SSHPASS_RS: listing keys from OS keychain");
+        }
+
         self.read_index()
     }
 }
@@ -367,7 +389,7 @@ impl KeychainManager {
     pub fn from_env() -> Self {
         match std::env::var("SSHPASS_RS_TEST_KEYCHAIN_FILE") {
             Ok(path) => Self::new(Box::new(FileKeychainBackend::new(path))),
-            Err(_) => Self::new(Box::new(RealKeychainBackend)),
+            Err(_) => Self::new(Box::new(RealKeychainBackend::new(false))),
         }
     }
 

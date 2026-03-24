@@ -35,12 +35,12 @@ fn run() -> i32 {
         }
     };
 
-    let keychain_manager = build_keychain_manager();
-    if let Some(exit_code) = handle_standalone(&cli, &keychain_manager) {
+    let keychain_manager = build_keychain_manager(cli.verbose);
+    if let Some(exit_code) = handle_standalone(&cli, &keychain_manager, cli.verbose) {
         return exit_code;
     }
 
-    let password = match resolve_password(&cli) {
+    let password = match resolve_password(&cli, cli.verbose) {
         Ok(password) => password,
         Err(err) => return report_runtime_error(err),
     };
@@ -79,8 +79,8 @@ fn run() -> i32 {
 ///
 /// Returns:
 /// - A keychain manager backed by either the file backend or the real OS keychain.
-fn build_keychain_manager() -> KeychainManager {
-    KeychainManager::new(build_keychain_backend())
+fn build_keychain_manager(verbose: bool) -> KeychainManager {
+    KeychainManager::new(build_keychain_backend(verbose))
 }
 
 /// Creates a fresh keychain backend matching the active environment configuration.
@@ -90,16 +90,39 @@ fn build_keychain_manager() -> KeychainManager {
 ///
 /// Returns:
 /// - A boxed keychain backend for standalone operations or password resolution.
-fn build_keychain_backend() -> Box<dyn KeychainBackend> {
+fn build_keychain_backend(verbose: bool) -> Box<dyn KeychainBackend> {
+    if verbose {
+        eprintln!("SSHPASS_RS: checking SSHPASS_RS_BACKEND environment variable");
+    }
+
     if let Ok(backend) = std::env::var("SSHPASS_RS_BACKEND") {
         if backend == "op" || backend == "1password" {
             let vault = std::env::var("SSHPASS_RS_VAULT").ok();
-            return Box::new(OnePasswordBackend::new(vault));
+            if verbose {
+                eprintln!(
+                    "SSHPASS_RS: selected 1Password backend (vault: {})",
+                    vault.as_deref().unwrap_or("default")
+                );
+            }
+            return Box::new(OnePasswordBackend::new(vault, verbose));
+        }
+
+        if verbose {
+            eprintln!(
+                "SSHPASS_RS: unknown backend '{}', falling back to OS keychain",
+                backend
+            );
         }
     }
+
     match std::env::var("SSHPASS_RS_TEST_KEYCHAIN_FILE") {
         Ok(path) => Box::new(FileKeychainBackend::new(path)),
-        Err(_) => Box::new(RealKeychainBackend),
+        Err(_) => {
+            if verbose {
+                eprintln!("SSHPASS_RS: selected OS keychain backend");
+            }
+            Box::new(RealKeychainBackend::new(verbose))
+        }
     }
 }
 
@@ -111,12 +134,21 @@ fn build_keychain_backend() -> Box<dyn KeychainBackend> {
 ///
 /// Returns:
 /// - `Some(exit_code)` when a standalone operation ran, otherwise `None`.
-fn handle_standalone(cli: &Cli, manager: &KeychainManager) -> Option<i32> {
+fn handle_standalone(cli: &Cli, manager: &KeychainManager, verbose: bool) -> Option<i32> {
     let result = if let Some(key) = &cli.store {
+        if verbose {
+            eprintln!("SSHPASS_RS: performing store for key '{}'", key);
+        }
         Some(keychain::handle_store(manager, key))
     } else if let Some(key) = &cli.delete {
+        if verbose {
+            eprintln!("SSHPASS_RS: performing delete for key '{}'", key);
+        }
         Some(keychain::handle_delete(manager, key))
     } else if cli.list {
+        if verbose {
+            eprintln!("SSHPASS_RS: listing stored keys");
+        }
         Some(keychain::handle_list(manager))
     } else {
         None
@@ -135,16 +167,31 @@ fn handle_standalone(cli: &Cli, manager: &KeychainManager) -> Option<i32> {
 ///
 /// Returns:
 /// - The resolved password secret, or a runtime error.
-fn resolve_password(cli: &Cli) -> Result<secrecy::SecretString, SshpassError> {
+fn resolve_password(cli: &Cli, verbose: bool) -> Result<secrecy::SecretString, SshpassError> {
     let resolver = if let Some(password) = &cli.password {
+        if verbose {
+            eprintln!("SSHPASS_RS: using password from -p argument");
+        }
         PasswordResolver::Argument(password.clone())
     } else if let Some(filename) = &cli.filename {
+        if verbose {
+            eprintln!("SSHPASS_RS: using password from file '{}'", filename);
+        }
         PasswordResolver::File(filename.into())
     } else if let Some(fd) = cli.fd {
+        if verbose {
+            eprintln!("SSHPASS_RS: using password from file descriptor {}", fd);
+        }
         PasswordResolver::FileDescriptor(fd)
     } else if cli.use_env {
+        if verbose {
+            eprintln!("SSHPASS_RS: using password from SSHPASS environment variable");
+        }
         PasswordResolver::Environment
     } else if let Some(key) = &cli.key {
+        if verbose {
+            eprintln!("SSHPASS_RS: using keychain with key '{}'", key);
+        }
         PasswordResolver::Keychain(key.clone())
     } else if cli.use_keychain {
         let key = cli::parse_user_at_host(&cli.command).ok_or_else(|| {
@@ -152,13 +199,21 @@ fn resolve_password(cli: &Cli) -> Result<secrecy::SecretString, SshpassError> {
                 "unable to derive keychain key from wrapped SSH arguments".to_string(),
             )
         })?;
+        if verbose {
+            eprintln!("SSHPASS_RS: using keychain with key '{}'", key);
+        }
         PasswordResolver::Keychain(key)
     } else {
+        if verbose {
+            eprintln!("SSHPASS_RS: reading password from stdin");
+        }
         PasswordResolver::Stdin
     };
 
     match resolver {
-        PasswordResolver::Keychain(_) => resolver.resolve_with_keychain(build_keychain_backend()),
+        PasswordResolver::Keychain(_) => {
+            resolver.resolve_with_keychain(build_keychain_backend(verbose), verbose)
+        }
         _ => resolver.resolve(),
     }
 }
@@ -238,6 +293,22 @@ mod tests {
             .assert()
             .success()
             .stdout(predicate::str::contains("(empty)"));
+    }
+
+    #[test]
+    fn verbose_list_standalone_logs_backend_selection_and_operation() {
+        let (_dir, keychain_file) = temp_keychain_env();
+
+        Command::cargo_bin("sshpass-rs")
+            .expect("expected sshpass-rs binary")
+            .env("SSHPASS_RS_TEST_KEYCHAIN_FILE", keychain_file)
+            .args(["-v", "--list"])
+            .assert()
+            .success()
+            .stderr(predicate::str::contains(
+                "SSHPASS_RS: checking SSHPASS_RS_BACKEND environment variable",
+            ))
+            .stderr(predicate::str::contains("SSHPASS_RS: listing stored keys"));
     }
 
     #[test]

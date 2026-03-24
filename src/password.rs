@@ -122,19 +122,29 @@ impl PasswordSource for StdinPassword {
 pub struct KeychainPassword {
     key: String,
     backend: Rc<dyn KeychainBackend>,
+    verbose: bool,
 }
 
 impl KeychainPassword {
-    pub fn new(key: String, backend: Box<dyn KeychainBackend>) -> Self {
+    pub fn new(key: String, backend: Box<dyn KeychainBackend>, verbose: bool) -> Self {
         Self {
             key,
             backend: Rc::from(backend),
+            verbose,
         }
     }
 
     #[allow(dead_code)]
-    pub fn new_with_shared_backend(key: String, backend: Rc<dyn KeychainBackend>) -> Self {
-        Self { key, backend }
+    pub fn new_with_shared_backend(
+        key: String,
+        backend: Rc<dyn KeychainBackend>,
+        verbose: bool,
+    ) -> Self {
+        Self {
+            key,
+            backend,
+            verbose,
+        }
     }
 
     fn prompt_and_maybe_save(&self) -> Result<SecretString, SshpassError> {
@@ -171,14 +181,38 @@ impl KeychainPassword {
 
 impl PasswordSource for KeychainPassword {
     fn resolve(&self) -> Result<SecretString, SshpassError> {
+        if self.verbose {
+            eprintln!("SSHPASS_RS: querying backend for key '{}'", self.key);
+        }
+
         match self.backend.get(&self.key) {
-            Ok(password) => Ok(password),
+            Ok(password) => {
+                if self.verbose {
+                    eprintln!("SSHPASS_RS: key '{}' found in backend", self.key);
+                }
+                Ok(password)
+            }
             Err(SshpassError::KeychainAccess(ref msg)) if msg.starts_with("key not found:") => {
+                if self.verbose {
+                    eprintln!(
+                        "SSHPASS_RS: key '{}' not found, falling back to interactive prompt",
+                        self.key
+                    );
+                }
                 self.prompt_and_maybe_save()
             }
-            Err(e) => Err(e),
+            Err(e) => {
+                if self.verbose {
+                    eprintln!("SSHPASS_RS: backend error: {}", msg_for_error(&e));
+                }
+                Err(e)
+            }
         }
     }
+}
+
+fn msg_for_error(error: &SshpassError) -> String {
+    error.to_string()
 }
 
 pub enum PasswordResolver {
@@ -205,10 +239,11 @@ impl PasswordResolver {
     pub fn resolve_with_keychain(
         &self,
         backend: Box<dyn KeychainBackend>,
+        verbose: bool,
     ) -> Result<SecretString, SshpassError> {
         match self {
             PasswordResolver::Keychain(key) => {
-                KeychainPassword::new(key.clone(), backend).resolve()
+                KeychainPassword::new(key.clone(), backend, verbose).resolve()
             }
             _ => self.resolve(),
         }
@@ -395,7 +430,7 @@ mod tests {
             .store("myserver", &SecretString::from("stored_pass"))
             .unwrap();
 
-        let src = KeychainPassword::new("myserver".to_string(), Box::new(backend));
+        let src = KeychainPassword::new("myserver".to_string(), Box::new(backend), false);
         let result = src.resolve().expect("should resolve from keychain");
         assert_eq!(result.expose_secret(), "stored_pass");
     }
@@ -408,7 +443,7 @@ mod tests {
         std::env::set_var("SSHPASS_RS_TEST_PASSWORD", "fallback_pass");
         std::env::set_var("SSHPASS_RS_TEST_SAVE", "0");
 
-        let src = KeychainPassword::new("missing_key".to_string(), Box::new(backend));
+        let src = KeychainPassword::new("missing_key".to_string(), Box::new(backend), false);
         let result = src.resolve().expect("should resolve via test env var");
         assert_eq!(result.expose_secret(), "fallback_pass");
 
@@ -424,7 +459,7 @@ mod tests {
         std::env::set_var("SSHPASS_RS_TEST_PASSWORD", "save_me_pass");
         std::env::set_var("SSHPASS_RS_TEST_SAVE", "1");
 
-        let src = KeychainPassword::new("save_key".to_string(), Box::new(backend));
+        let src = KeychainPassword::new("save_key".to_string(), Box::new(backend), false);
         let result = src.resolve().expect("should resolve and save");
         assert_eq!(result.expose_secret(), "save_me_pass");
 
@@ -440,7 +475,7 @@ mod tests {
         std::env::set_var("SSHPASS_RS_TEST_PASSWORD", "nosave_pass");
         std::env::set_var("SSHPASS_RS_TEST_SAVE", "0");
 
-        let src = KeychainPassword::new("nosave_key".to_string(), Box::new(backend));
+        let src = KeychainPassword::new("nosave_key".to_string(), Box::new(backend), false);
         let result = src.resolve().expect("should resolve without saving");
         assert_eq!(result.expose_secret(), "nosave_pass");
 
@@ -459,8 +494,11 @@ mod tests {
         std::env::set_var("SSHPASS_RS_TEST_PASSWORD", "verify_stored");
         std::env::set_var("SSHPASS_RS_TEST_SAVE", "1");
 
-        let src =
-            KeychainPassword::new_with_shared_backend("verify_key".to_string(), backend_clone);
+        let src = KeychainPassword::new_with_shared_backend(
+            "verify_key".to_string(),
+            backend_clone,
+            false,
+        );
         let result = src.resolve().expect("should resolve and save");
         assert_eq!(result.expose_secret(), "verify_stored");
 
@@ -482,8 +520,11 @@ mod tests {
         std::env::set_var("SSHPASS_RS_TEST_PASSWORD", "dont_store_me");
         std::env::set_var("SSHPASS_RS_TEST_SAVE", "0");
 
-        let src =
-            KeychainPassword::new_with_shared_backend("nostore_key".to_string(), backend_clone);
+        let src = KeychainPassword::new_with_shared_backend(
+            "nostore_key".to_string(),
+            backend_clone,
+            false,
+        );
         let result = src.resolve().expect("should resolve without saving");
         assert_eq!(result.expose_secret(), "dont_store_me");
 
@@ -528,7 +569,7 @@ mod tests {
     #[test]
     fn test_keychain_backend_failure_propagates() {
         let backend = FailingKeychainBackend;
-        let src = KeychainPassword::new("any_key".to_string(), Box::new(backend));
+        let src = KeychainPassword::new("any_key".to_string(), Box::new(backend), false);
 
         let result = src.resolve();
         assert!(

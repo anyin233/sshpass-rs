@@ -122,19 +122,25 @@ pub fn parse_item_password(json: &str) -> Result<SecretString, SshpassError> {
 pub struct OnePasswordBackend {
     vault: Option<String>,
     op_path: String,
+    verbose: bool,
 }
 
 impl OnePasswordBackend {
-    pub fn new(vault: Option<String>) -> Self {
+    pub fn new(vault: Option<String>, verbose: bool) -> Self {
         Self {
             vault,
             op_path: "op".to_string(),
+            verbose,
         }
     }
 
     #[allow(dead_code)]
-    pub fn with_op_path(vault: Option<String>, op_path: String) -> Self {
-        Self { vault, op_path }
+    pub fn with_op_path(vault: Option<String>, op_path: String, verbose: bool) -> Self {
+        Self {
+            vault,
+            op_path,
+            verbose,
+        }
     }
 
     fn append_vault_args<'a>(&'a self, args: &mut Vec<&'a str>) {
@@ -145,6 +151,10 @@ impl OnePasswordBackend {
     }
 
     fn run_op(&self, args: &[&str]) -> Result<String, SshpassError> {
+        if self.verbose {
+            eprintln!("SSHPASS_RS: running: op {}", args.join(" "));
+        }
+
         let output = Command::new(&self.op_path)
             .args(args)
             .output()
@@ -154,6 +164,10 @@ impl OnePasswordBackend {
                 ),
                 _ => SshpassError::KeychainAccess(format!("failed to run op: {err}")),
             })?;
+
+        if self.verbose {
+            eprintln!("SSHPASS_RS: op exited with status {}", output.status);
+        }
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
@@ -166,6 +180,13 @@ impl OnePasswordBackend {
     }
 
     fn run_op_with_stdin(&self, args: &[&str], stdin_data: &str) -> Result<String, SshpassError> {
+        if self.verbose {
+            eprintln!(
+                "SSHPASS_RS: running: op {} (with stdin data)",
+                args.join(" ")
+            );
+        }
+
         let mut child = Command::new(&self.op_path)
             .args(args)
             .stdin(Stdio::piped())
@@ -190,6 +211,10 @@ impl OnePasswordBackend {
             .wait_with_output()
             .map_err(|err| SshpassError::KeychainAccess(format!("failed to wait for op: {err}")))?;
 
+        if self.verbose {
+            eprintln!("SSHPASS_RS: op exited with status {}", output.status);
+        }
+
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
             return Err(SshpassError::KeychainAccess(format!("op failed: {stderr}")));
@@ -203,6 +228,10 @@ impl OnePasswordBackend {
 
 impl KeychainBackend for OnePasswordBackend {
     fn store(&self, key: &str, password: &SecretString) -> Result<(), SshpassError> {
+        if self.verbose {
+            eprintln!("SSHPASS_RS: storing key '{}' in 1Password", key);
+        }
+
         let payload = serde_json::json!({
             "title": key,
             "category": "PASSWORD",
@@ -224,15 +253,30 @@ impl KeychainBackend for OnePasswordBackend {
     }
 
     fn get(&self, key: &str) -> Result<SecretString, SshpassError> {
+        if self.verbose {
+            eprintln!("SSHPASS_RS: looking up key '{}' in 1Password", key);
+        }
+
         let mut list_args = vec!["item", "list", "--tags", "sshpass-rs", "--format", "json"];
         self.append_vault_args(&mut list_args);
         let list_output = self.run_op(&list_args)?;
         let items = parse_item_list(&list_output)?;
-        let item_id = items
-            .iter()
-            .find(|item| item.title == key)
-            .map(|item| item.id.as_str())
-            .ok_or_else(|| SshpassError::KeychainAccess(format!("key not found: {key}")))?;
+        let item_id = match items.iter().find(|item| item.title == key) {
+            Some(item) => {
+                if self.verbose {
+                    eprintln!("SSHPASS_RS: found item id '{}' for key '{}'", item.id, key);
+                }
+                item.id.as_str()
+            }
+            None => {
+                if self.verbose {
+                    eprintln!("SSHPASS_RS: key '{}' not found in 1Password", key);
+                }
+                return Err(SshpassError::KeychainAccess(format!(
+                    "key not found: {key}"
+                )));
+            }
+        };
 
         let mut get_args = vec!["item", "get", item_id, "--format", "json"];
         self.append_vault_args(&mut get_args);
@@ -241,6 +285,10 @@ impl KeychainBackend for OnePasswordBackend {
     }
 
     fn delete(&self, key: &str) -> Result<(), SshpassError> {
+        if self.verbose {
+            eprintln!("SSHPASS_RS: deleting key '{}' from 1Password", key);
+        }
+
         let mut list_args = vec!["item", "list", "--tags", "sshpass-rs", "--format", "json"];
         self.append_vault_args(&mut list_args);
         let list_output = self.run_op(&list_args)?;
@@ -258,10 +306,18 @@ impl KeychainBackend for OnePasswordBackend {
     }
 
     fn list(&self) -> Result<Vec<String>, SshpassError> {
+        if self.verbose {
+            eprintln!("SSHPASS_RS: listing keys from 1Password");
+        }
+
         let mut args = vec!["item", "list", "--tags", "sshpass-rs", "--format", "json"];
         self.append_vault_args(&mut args);
         let output = self.run_op(&args)?;
-        parse_item_titles(&output)
+        let titles = parse_item_titles(&output)?;
+        if self.verbose {
+            eprintln!("SSHPASS_RS: found {} keys", titles.len());
+        }
+        Ok(titles)
     }
 }
 
@@ -283,7 +339,7 @@ mod tests {
 
     #[test]
     fn test_op_not_found() {
-        let backend = OnePasswordBackend::with_op_path(None, "/nonexistent/op".to_string());
+        let backend = OnePasswordBackend::with_op_path(None, "/nonexistent/op".to_string(), false);
         let result = backend.list();
 
         assert!(result.is_err());
@@ -301,7 +357,7 @@ mod tests {
     #[test]
     fn test_op_stderr_included() {
         // `false` always exits 1 with empty stderr.
-        let backend = OnePasswordBackend::with_op_path(None, "false".to_string());
+        let backend = OnePasswordBackend::with_op_path(None, "false".to_string(), false);
         let result = backend.list();
 
         assert!(result.is_err());
@@ -319,7 +375,7 @@ mod tests {
     #[test]
     fn test_list_returns_titles() {
         let _guard = ENV_MUTEX.lock().unwrap();
-        let backend = OnePasswordBackend::with_op_path(None, mock_op_path());
+        let backend = OnePasswordBackend::with_op_path(None, mock_op_path(), false);
         let titles = backend.list().expect("list should succeed");
         assert_eq!(titles, vec!["user@host", "root@server"]);
     }
@@ -329,7 +385,7 @@ mod tests {
         let _guard = ENV_MUTEX.lock().unwrap();
         std::env::set_var("MOCK_OP_EMPTY", "1");
 
-        let backend = OnePasswordBackend::with_op_path(None, mock_op_path());
+        let backend = OnePasswordBackend::with_op_path(None, mock_op_path(), false);
         let titles = backend.list().expect("list should succeed");
 
         std::env::remove_var("MOCK_OP_EMPTY");
@@ -339,7 +395,7 @@ mod tests {
     #[test]
     fn test_get_returns_password() {
         let _guard = ENV_MUTEX.lock().unwrap();
-        let backend = OnePasswordBackend::with_op_path(None, mock_op_path());
+        let backend = OnePasswordBackend::with_op_path(None, mock_op_path(), false);
         let password = backend.get("user@host").expect("get should succeed");
         assert_eq!(password.expose_secret(), "s3cret");
     }
@@ -347,7 +403,7 @@ mod tests {
     #[test]
     fn test_get_not_found() {
         let _guard = ENV_MUTEX.lock().unwrap();
-        let backend = OnePasswordBackend::with_op_path(None, mock_op_path());
+        let backend = OnePasswordBackend::with_op_path(None, mock_op_path(), false);
         let result = backend.get("nonexistent");
 
         assert!(result.is_err());
@@ -366,7 +422,7 @@ mod tests {
     fn test_get_exact_match() {
         // "user" should NOT match "user@host" — exact match only.
         let _guard = ENV_MUTEX.lock().unwrap();
-        let backend = OnePasswordBackend::with_op_path(None, mock_op_path());
+        let backend = OnePasswordBackend::with_op_path(None, mock_op_path(), false);
         let result = backend.get("user");
 
         assert!(result.is_err());
@@ -384,7 +440,7 @@ mod tests {
     #[test]
     fn test_delete_not_found() {
         let _guard = ENV_MUTEX.lock().unwrap();
-        let backend = OnePasswordBackend::with_op_path(None, mock_op_path());
+        let backend = OnePasswordBackend::with_op_path(None, mock_op_path(), false);
         let result = backend.delete("nonexistent");
 
         assert!(result.is_err());
@@ -402,7 +458,7 @@ mod tests {
     #[test]
     fn test_store_constructs_correct_command() {
         let _guard = ENV_MUTEX.lock().unwrap();
-        let backend = OnePasswordBackend::with_op_path(None, mock_op_path());
+        let backend = OnePasswordBackend::with_op_path(None, mock_op_path(), false);
         let password = SecretString::from("mypass");
         backend
             .store("test@host", &password)
@@ -412,7 +468,7 @@ mod tests {
     #[test]
     fn test_store_without_vault_omits_flag() {
         let _guard = ENV_MUTEX.lock().unwrap();
-        let backend = OnePasswordBackend::with_op_path(None, mock_op_path());
+        let backend = OnePasswordBackend::with_op_path(None, mock_op_path(), false);
         let password = SecretString::from("mypass");
         backend
             .store("test@host", &password)
@@ -423,7 +479,7 @@ mod tests {
     fn test_delete_resolves_id() {
         // "user@host" maps to id "abc123" which mock accepts for delete.
         let _guard = ENV_MUTEX.lock().unwrap();
-        let backend = OnePasswordBackend::with_op_path(None, mock_op_path());
+        let backend = OnePasswordBackend::with_op_path(None, mock_op_path(), false);
         backend
             .delete("user@host")
             .expect("delete should succeed for known item");
