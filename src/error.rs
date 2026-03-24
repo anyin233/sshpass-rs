@@ -144,8 +144,7 @@ mod tests {
             SshpassExitCode::RuntimeError
         ));
 
-        let err =
-            SshpassError::Io(std::io::Error::new(std::io::ErrorKind::Other, "io error"));
+        let err = SshpassError::Io(std::io::Error::new(std::io::ErrorKind::Other, "io error"));
         assert!(matches!(
             SshpassExitCode::from(&err),
             SshpassExitCode::RuntimeError

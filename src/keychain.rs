@@ -321,6 +321,36 @@ impl KeychainBackend for FileKeychainBackend {
     }
 }
 
+pub fn handle_store(manager: &KeychainManager, key: &str) -> Result<(), SshpassError> {
+    let password = match std::env::var("SSHPASS_RS_TEST_PASSWORD") {
+        Ok(p) => p,
+        Err(_) => rpassword::prompt_password("Enter password to store: ")
+            .map_err(|e| SshpassError::Io(e))?,
+    };
+    let secret = SecretString::from(password);
+    manager.store(key, &secret)?;
+    println!("Password stored for key '{key}'");
+    Ok(())
+}
+
+pub fn handle_delete(manager: &KeychainManager, key: &str) -> Result<(), SshpassError> {
+    manager.delete(key)?;
+    println!("Password deleted for key '{key}'");
+    Ok(())
+}
+
+pub fn handle_list(manager: &KeychainManager) -> Result<(), SshpassError> {
+    let keys = manager.list()?;
+    if keys.is_empty() {
+        println!("(empty)");
+    } else {
+        for key in &keys {
+            println!("{key}");
+        }
+    }
+    Ok(())
+}
+
 pub struct KeychainManager {
     backend: Box<dyn KeychainBackend>,
 }
@@ -482,5 +512,74 @@ mod tests {
         assert_eq!(retrieved.expose_secret(), "env_pass");
 
         std::env::remove_var("SSHPASS_RS_TEST_KEYCHAIN_FILE");
+    }
+
+    #[test]
+    fn test_store_handler() {
+        std::env::set_var("SSHPASS_RS_TEST_PASSWORD", "handler_pass");
+
+        let backend = InMemoryKeychainBackend::new();
+        let manager = KeychainManager::new(Box::new(backend));
+
+        handle_store(&manager, "test_key").unwrap();
+
+        let retrieved = manager.get("test_key").unwrap();
+        assert_eq!(retrieved.expose_secret(), "handler_pass");
+
+        std::env::remove_var("SSHPASS_RS_TEST_PASSWORD");
+    }
+
+    #[test]
+    fn test_delete_handler() {
+        let backend = InMemoryKeychainBackend::new();
+        let manager = KeychainManager::new(Box::new(backend));
+
+        manager
+            .store("del_key", &SecretString::from("some_pass"))
+            .unwrap();
+
+        handle_delete(&manager, "del_key").unwrap();
+
+        let result = manager.get("del_key");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_list_handler() {
+        let backend = InMemoryKeychainBackend::new();
+        let manager = KeychainManager::new(Box::new(backend));
+
+        manager
+            .store("key_a", &SecretString::from("pass_a"))
+            .unwrap();
+        manager
+            .store("key_b", &SecretString::from("pass_b"))
+            .unwrap();
+
+        handle_list(&manager).unwrap();
+
+        let mut keys = manager.list().unwrap();
+        keys.sort();
+        assert_eq!(keys, vec!["key_a", "key_b"]);
+    }
+
+    #[test]
+    fn test_list_empty() {
+        let backend = InMemoryKeychainBackend::new();
+        let manager = KeychainManager::new(Box::new(backend));
+
+        handle_list(&manager).unwrap();
+
+        let keys = manager.list().unwrap();
+        assert!(keys.is_empty());
+    }
+
+    #[test]
+    fn test_delete_nonexistent() {
+        let backend = InMemoryKeychainBackend::new();
+        let manager = KeychainManager::new(Box::new(backend));
+
+        let result = handle_delete(&manager, "nonexistent_key");
+        assert!(result.is_err());
     }
 }
