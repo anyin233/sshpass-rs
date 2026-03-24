@@ -12,7 +12,6 @@ use crate::keychain::{FileKeychainBackend, KeychainBackend, KeychainManager, Rea
 use crate::matcher::PromptMatcher;
 use crate::password::PasswordResolver;
 use crate::pty::PtySession;
-use portable_pty::{Child, MasterPty, SlavePty};
 
 fn main() {
     std::process::exit(run());
@@ -186,8 +185,12 @@ fn normalize_command(command: &[String]) -> Result<Vec<String>, SshpassError> {
 /// Returns:
 /// - A registered signal handler ready for the PTY I/O loop.
 fn build_signal_handler(session: &mut PtySession) -> Result<signals::SignalHandler, SshpassError> {
-    let handler =
-        signals::SignalHandler::new(session_master_fd(session)?, session_child_pid(session)?);
+    let child_pid = session
+        .child_process_id()
+        .ok_or_else(|| SshpassError::ChildSpawn("PTY child pid is unavailable".to_string()))?;
+    let child_pid = i32::try_from(child_pid)
+        .map_err(|_| SshpassError::ChildSpawn("PTY child pid exceeds i32 range".to_string()))?;
+    let handler = signals::SignalHandler::new(session.master_fd()?, child_pid);
     handler.register_all().map_err(SshpassError::Io)?;
     Ok(handler)
 }
@@ -202,57 +205,6 @@ fn build_signal_handler(session: &mut PtySession) -> Result<signals::SignalHandl
 fn report_runtime_error(err: SshpassError) -> i32 {
     eprintln!("{err}");
     SshpassExitCode::from(&err).into()
-}
-
-/// Mirrors the private PTY session layout so signal wiring can read the master fd and child pid
-/// without changing the PTY module interface in this task.
-struct PtySessionAccess {
-    master: Box<dyn MasterPty + Send>,
-    _slave: Option<Box<dyn SlavePty + Send>>,
-    child: Option<Box<dyn Child + Send>>,
-}
-
-/// Reinterprets a PTY session as its internal layout for signal bootstrap.
-///
-/// Params:
-/// - session: The PTY session requiring internal access.
-///
-/// Returns:
-/// - A mutable view over the internal PTY fields.
-fn session_access(session: &mut PtySession) -> &mut PtySessionAccess {
-    unsafe { &mut *(session as *mut PtySession).cast::<PtySessionAccess>() }
-}
-
-/// Extracts the PTY master file descriptor needed for signal forwarding.
-///
-/// Params:
-/// - session: The PTY session with a live master side.
-///
-/// Returns:
-/// - The PTY master file descriptor.
-fn session_master_fd(session: &mut PtySession) -> Result<i32, SshpassError> {
-    session_access(session)
-        .master
-        .as_raw_fd()
-        .ok_or_else(|| SshpassError::PtyCreation("PTY master fd is unavailable".to_string()))
-}
-
-/// Extracts the PTY child process id needed for signal forwarding.
-///
-/// Params:
-/// - session: The PTY session with a spawned child.
-///
-/// Returns:
-/// - The PTY child process id as an `i32`.
-fn session_child_pid(session: &mut PtySession) -> Result<i32, SshpassError> {
-    let pid = session_access(session)
-        .child
-        .as_ref()
-        .and_then(|child| child.process_id())
-        .ok_or_else(|| SshpassError::ChildSpawn("PTY child pid is unavailable".to_string()))?;
-
-    i32::try_from(pid)
-        .map_err(|_| SshpassError::ChildSpawn("PTY child pid exceeds i32 range".to_string()))
 }
 
 #[cfg(test)]

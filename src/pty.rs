@@ -69,6 +69,16 @@ impl PtySession {
             .map_err(|err| SshpassError::Io(std::io::Error::other(err.to_string())))
     }
 
+    pub fn child_process_id(&self) -> Option<u32> {
+        self.child.as_ref().and_then(|child| child.process_id())
+    }
+
+    pub fn master_fd(&self) -> Result<RawFd, SshpassError> {
+        self.master
+            .as_raw_fd()
+            .ok_or_else(|| SshpassError::PtyCreation("PTY master fd is unavailable".to_string()))
+    }
+
     /// Drops the slave handle once the password handshake is complete.
     pub fn drop_slave(&mut self) {
         self.slave = None;
@@ -176,19 +186,11 @@ impl PtySession {
 
             if stdin_ready {
                 let count = read_retrying(&mut stdin.lock(), &mut buffer)?;
-                if count == 0 {
-                    forward_stdin = false;
-                } else if !write_input(&mut *writer, &buffer[..count])? {
+                if count == 0 || !write_input(&mut *writer, &buffer[..count])? {
                     forward_stdin = false;
                 }
             }
         }
-    }
-
-    fn master_fd(&self) -> Result<RawFd, SshpassError> {
-        self.master
-            .as_raw_fd()
-            .ok_or_else(|| SshpassError::PtyCreation("PTY master fd is unavailable".to_string()))
     }
 
     fn take_child(&mut self) -> Result<Box<dyn Child + Send>, SshpassError> {

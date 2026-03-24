@@ -1,4 +1,3 @@
-// TODO(orchestrator): Switch to SshpassError when error.rs is ready
 use std::io;
 use std::os::unix::io::{BorrowedFd, RawFd};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -54,7 +53,6 @@ impl SignalHandler {
     }
 
     /// Registers all signal handlers via `signal_hook::flag::register`.
-    // TODO: Switch to SshpassError when error.rs is ready
     pub fn register_all(&self) -> io::Result<()> {
         signal_hook::flag::register(SIGINT, Arc::clone(&self.sigint))?;
         signal_hook::flag::register(SIGTSTP, Arc::clone(&self.sigtstp))?;
@@ -68,7 +66,6 @@ impl SignalHandler {
     /// Checks all signal flags and dispatches the corresponding action.
     ///
     /// Call this in the main poll/select loop.
-    // TODO(orchestrator): Switch to SshpassError when error.rs is ready
     pub fn check_and_handle(&self) -> io::Result<()> {
         if self.sigint.swap(false, Ordering::Relaxed) {
             self.write_to_master(&[CTRL_C_BYTE])?;
@@ -79,13 +76,11 @@ impl SignalHandler {
         }
 
         if self.sigterm.swap(false, Ordering::Relaxed) {
-            signal::kill(self.child_pid, Signal::SIGTERM)
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+            signal::kill(self.child_pid, Signal::SIGTERM).map_err(io::Error::other)?;
         }
 
         if self.sighup.swap(false, Ordering::Relaxed) {
-            signal::kill(self.child_pid, Signal::SIGHUP)
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+            signal::kill(self.child_pid, Signal::SIGHUP).map_err(io::Error::other)?;
         }
 
         if self.sigwinch.swap(false, Ordering::Relaxed) {
@@ -98,6 +93,7 @@ impl SignalHandler {
         Ok(())
     }
 
+    #[allow(dead_code)]
     /// Returns `true` if SIGCHLD was received (clears the flag).
     pub fn sigchld_received(&self) -> bool {
         self.sigchld.swap(false, Ordering::Relaxed)
@@ -105,7 +101,7 @@ impl SignalHandler {
 
     fn write_to_master(&self, buf: &[u8]) -> io::Result<()> {
         let fd = unsafe { BorrowedFd::borrow_raw(self.master_fd) };
-        nix::unistd::write(fd, buf).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+        nix::unistd::write(fd, buf).map_err(io::Error::other)?;
         Ok(())
     }
 

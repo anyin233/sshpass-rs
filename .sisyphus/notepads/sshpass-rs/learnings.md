@@ -15,3 +15,10 @@
 - `flag.swap(false, Ordering::Relaxed)` for atomic check-and-clear in main loop
 - `unsafe { BorrowedFd::borrow_raw(raw_fd) }` to bridge RawFd → AsFd for nix v0.29
 - `unsafe { libc::ioctl(...) }` for TIOCGWINSZ/TIOCSWINSZ terminal size propagation
+
+## Compliance audit findings (2026-03-24)
+- `cargo build --release` and `cargo test` both passed during audit.
+- The expected plan file `.sisyphus/plans/sshpass-rs.md` is missing, so plan compliance could not be verified against a canonical source file.
+- CLI is not fully sshpass-compatible: `-h` and `-V` are not implemented and are treated as wrapped commands.
+- Password handling still uses bare `String` values and no `ZeroizeOnDrop` usage was found.
+- Several source modules exceed the 300-line cap: `src/main.rs`, `src/cli.rs`, `src/password.rs`, `src/keychain.rs`, `src/pty.rs`.

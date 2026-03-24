@@ -132,6 +132,7 @@ impl KeychainPassword {
         }
     }
 
+    #[allow(dead_code)]
     pub fn new_with_shared_backend(key: String, backend: Rc<dyn KeychainBackend>) -> Self {
         Self { key, backend }
     }

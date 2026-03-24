@@ -103,11 +103,13 @@ impl KeychainBackend for RealKeychainBackend {
     }
 }
 
+#[allow(dead_code)]
 pub struct InMemoryKeychainBackend {
     store: RefCell<HashMap<String, String>>,
 }
 
 impl InMemoryKeychainBackend {
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self {
             store: RefCell::new(HashMap::new()),
@@ -324,8 +326,9 @@ impl KeychainBackend for FileKeychainBackend {
 pub fn handle_store(manager: &KeychainManager, key: &str) -> Result<(), SshpassError> {
     let password = match std::env::var("SSHPASS_RS_TEST_PASSWORD") {
         Ok(p) => p,
-        Err(_) => rpassword::prompt_password("Enter password to store: ")
-            .map_err(|e| SshpassError::Io(e))?,
+        Err(_) => {
+            rpassword::prompt_password("Enter password to store: ").map_err(SshpassError::Io)?
+        }
     };
     let secret = SecretString::from(password);
     manager.store(key, &secret)?;
@@ -360,6 +363,7 @@ impl KeychainManager {
         Self { backend }
     }
 
+    #[allow(dead_code)]
     pub fn from_env() -> Self {
         match std::env::var("SSHPASS_RS_TEST_KEYCHAIN_FILE") {
             Ok(path) => Self::new(Box::new(FileKeychainBackend::new(path))),
@@ -371,6 +375,7 @@ impl KeychainManager {
         self.backend.store(key, password)
     }
 
+    #[allow(dead_code)]
     pub fn get(&self, key: &str) -> Result<SecretString, SshpassError> {
         self.backend.get(key)
     }
