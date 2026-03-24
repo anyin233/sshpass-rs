@@ -1,105 +1,61 @@
 # sshpass-rs
 
-A Rust replacement for [sshpass](https://sourceforge.net/projects/sshpass/) with macOS Keychain integration.
+A drop-in Rust replacement for [sshpass](https://sourceforge.net/projects/sshpass/) with secure password storage via macOS Keychain and 1Password.
 
-## Description
+## Quick Start
 
-`sshpass-rs` wraps SSH commands and supplies passwords non-interactively, just like the original `sshpass`. It's a drop-in replacement for scripts that already use `sshpass`, and it adds one thing the original never had: secure password storage in the macOS Keychain.
+```sh
+# Install
+cargo install --path .
 
-Instead of keeping passwords in shell scripts, environment variables, or plaintext files, you store them once in the Keychain and reference them by key. Passwords are held in memory as `SecretString` (zeroized on drop) and the `SSHPASS` environment variable is cleared before the child process starts.
+# Store a password once, use it everywhere
+sshpass-rs --store user@host        # prompts for password, saves to Keychain
+sshpass-rs -k ssh user@host         # looks up stored password automatically
+sshpass-rs -k scp user@host:f .     # works with scp, rsync, sftp, etc.
+
+# Or pass a password directly (original sshpass style)
+sshpass-rs -p mypass ssh user@host
+```
+
+**Using 1Password instead of macOS Keychain?**
+
+```sh
+export SSHPASS_RS_BACKEND=op
+sshpass-rs --store user@host
+sshpass-rs -k ssh user@host
+```
+
+---
 
 ## Installation
 
-Build from source:
-
 ```sh
+# From source
+cargo install --path .
+
+# Or build manually
 cargo build --release
 # Binary at: target/release/sshpass-rs
 ```
 
-Or install directly into your Cargo bin path:
+## Configuration
 
-```sh
-cargo install --path .
-```
+### Backend Selection
 
-## Usage
+sshpass-rs supports two password storage backends, controlled by environment variables:
 
-### Synopsis
+| Variable | Values | Description |
+|----------|--------|-------------|
+| `SSHPASS_RS_BACKEND` | `op`, `1password` | Use 1Password instead of macOS Keychain. Unset = macOS Keychain. |
+| `SSHPASS_RS_VAULT` | vault name | 1Password vault to use (optional, defaults to personal vault) |
 
-```
-sshpass-rs [OPTIONS] <command> [args...]
-sshpass-rs --store <key>
-sshpass-rs --delete <key>
-sshpass-rs --list
-```
+**macOS Keychain** (default) — passwords are stored in the system Keychain, encrypted at rest, protected by your login password.
 
-### Password source flags
+**1Password** — passwords are stored as tagged items in your 1Password vault. Requires the [1Password CLI (`op`)](https://1password.com/downloads/command-line/) to be installed and authenticated.
 
-These flags are mutually exclusive. Only one may be used per invocation.
+> On non-macOS platforms, macOS Keychain is unavailable. Set `SSHPASS_RS_BACKEND=op` to use 1Password instead.
 
-| Flag | Description |
-|------|-------------|
-| `-p <password>` | Pass the password directly as an argument |
-| `-f <filename>` | Read the password from a file (first line) |
-| `-d <number>` | Read the password from a file descriptor |
-| `-e` | Read the password from the `SSHPASS` environment variable |
-| `-k` | Look up the password in the macOS Keychain, auto-deriving the key from the wrapped command |
-
-### Other flags
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `-P <prompt>` | `assword:` | Prompt pattern to watch for in the PTY output |
-| `-v` | off | Verbose mode; prints diagnostic output to stderr |
-
-### Keychain management flags
-
-These are standalone operations. No wrapped command is needed.
-
-| Flag | Description |
-|------|-------------|
-| `--key <value>` | Explicit Keychain key to use with `-k` (overrides auto-detection) |
-| `--store <key>` | Prompt for a password and store it in the Keychain under `<key>` |
-| `--delete <key>` | Delete the Keychain entry for `<key>` |
-| `--list` | List all Keychain entries managed by sshpass-rs |
-
-### 1Password backend
-
-Set `SSHPASS_RS_BACKEND=op` (or `1password`) to store and retrieve passwords through 1Password instead of the macOS Keychain.
-
-**Prerequisites:** the [1Password CLI (`op`)](https://1password.com/downloads/command-line/) must be installed and signed in.
-
-#### Environment variables
-
-| Variable | Description |
-|----------|-------------|
-| `SSHPASS_RS_BACKEND` | Set to `op` or `1password` to use 1Password instead of macOS Keychain |
-| `SSHPASS_RS_VAULT` | Optional. Specify which 1Password vault to use (defaults to the personal vault) |
-
-#### Usage
-
-```sh
-# Store a password in 1Password
-SSHPASS_RS_BACKEND=op sshpass-rs --store user@host
-
-# Use a stored 1Password password
-SSHPASS_RS_BACKEND=op sshpass-rs -k ssh user@host
-
-# List all sshpass-rs managed passwords in 1Password
-SSHPASS_RS_BACKEND=op sshpass-rs --list
-
-# Delete a stored password from 1Password
-SSHPASS_RS_BACKEND=op sshpass-rs --delete user@host
-```
-
-**With a specific vault:**
-
-```sh
-SSHPASS_RS_VAULT=Production SSHPASS_RS_BACKEND=op sshpass-rs -k ssh user@host
-```
-
-**Service account for automation (no interactive prompt):**
+#### 1Password Service Account (for automation)
 
 ```sh
 export OP_SERVICE_ACCOUNT_TOKEN=ops_...
@@ -107,173 +63,191 @@ export SSHPASS_RS_BACKEND=op
 sshpass-rs -k ssh user@host
 ```
 
-Passwords are stored as Password items tagged `sshpass-rs`. Authentication is handled entirely by the `op` CLI (biometric unlock, service account token, or session token).
+### Verbose / Diagnostic Output
 
-### Examples
-
-**Pass password directly (original sshpass style):**
+Use `-v` to see which backend is selected, what commands are executed, and how password resolution proceeds:
 
 ```sh
-sshpass-rs -p hunter2 ssh user@host
+sshpass-rs -v -k ssh user@host
 ```
 
-**Read password from a file:**
-
-```sh
-sshpass-rs -f ~/.ssh/mypassword ssh user@host
+```
+SSHPASS_RS: checking SSHPASS_RS_BACKEND environment variable
+SSHPASS_RS: selected OS keychain backend
+SSHPASS_RS: using keychain with key 'user@host'
+SSHPASS_RS: querying backend for key 'user@host'
+SSHPASS_RS: key 'user@host' found in backend
+SSHPASS searching for password prompt using match "assword:"
+SSHPASS detected password prompt
+SSHPASS sending password
 ```
 
-**Read password from an environment variable:**
+## Usage
 
-```sh
-SSHPASS=hunter2 sshpass-rs -e ssh user@host
 ```
-
-**Store a password in the Keychain once:**
-
-```sh
-sshpass-rs --store user@host
-# Prompts: Enter password for user@host:
-```
-
-**Use a stored Keychain password (auto-detect key):**
-
-```sh
-sshpass-rs -k ssh user@host
-# Key auto-derived as "user@host"
-```
-
-**Use a stored Keychain password with an explicit key:**
-
-```sh
-sshpass-rs --key myserver ssh -l user host
-```
-
-**Delete a stored password:**
-
-```sh
-sshpass-rs --delete user@host
-```
-
-**List all stored passwords:**
-
-```sh
+sshpass-rs [OPTIONS] <command> [args...]
+sshpass-rs --store <key>
+sshpass-rs --delete <key>
 sshpass-rs --list
+sshpass-rs --help
 ```
 
-**Use with scp:**
+### Password Source Flags
+
+Mutually exclusive — only one per invocation.
+
+| Flag | Description |
+|------|-------------|
+| `-p <password>` | Pass the password directly as an argument |
+| `-f <filename>` | Read the password from a file (first line) |
+| `-d <number>` | Read the password from a file descriptor |
+| `-e` | Read the password from the `SSHPASS` environment variable |
+| `-k` | Look up the password from the configured backend, auto-deriving the key from the SSH command |
+
+No flag = read password from stdin (original sshpass behavior).
+
+### Password Management
+
+Standalone operations — no wrapped command needed.
+
+| Flag | Description |
+|------|-------------|
+| `--store <key>` | Prompt for a password and store it under `<key>` |
+| `--delete <key>` | Delete the stored entry for `<key>` |
+| `--list` | List all entries managed by sshpass-rs |
+| `--key <value>` | Explicit key name for `-k` (overrides auto-detection) |
+
+### Other Flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-P <prompt>` | `assword:` | Prompt pattern to match in PTY output |
+| `-v` | off | Verbose mode — diagnostic output to stderr |
+| `-h`, `--help` | | Context-sensitive help (try `--store --help`, `--list --help`, `-k --help`) |
+
+### Key Auto-Detection
+
+With `-k` (no `--key`), the key is derived from the wrapped command:
+
+- `ssh user@host` → key = `user@host`
+- `ssh -l user host` → key = `user@host`
+
+If neither pattern matches, you're prompted interactively.
+
+## Examples
+
+### Basic Password Passing
 
 ```sh
-sshpass-rs -k scp user@host:/remote/file ./local/
-```
+# Direct password
+sshpass-rs -p hunter2 ssh user@host
 
-**Use with rsync:**
+# From file
+sshpass-rs -f ~/.ssh/mypassword ssh user@host
 
-```sh
-sshpass-rs -k rsync -avz user@host:/data/ ./backup/
-```
+# From environment variable
+SSHPASS=hunter2 sshpass-rs -e ssh user@host
 
-**Custom prompt pattern (for non-English systems):**
-
-```sh
-sshpass-rs -p hunter2 -P "Passwort:" ssh user@host
-```
-
-### Recommended workflow
-
-Store the password once, then use `-k` everywhere:
-
-```sh
-# One-time setup
-sshpass-rs --store user@host
-
-# Daily use
-sshpass-rs -k ssh user@host
-sshpass-rs -k scp user@host:/etc/config ./
-sshpass-rs -k rsync -avz user@host:/data/ ./backup/
-```
-
-### Key auto-detection
-
-When you use `-k` without `--key`, sshpass-rs inspects the wrapped command to derive a `user@host` key. It recognizes two patterns:
-
-- `ssh user@host ...` - the first non-flag argument containing `@`
-- `ssh -l user host ...` - the `-l` flag followed by a hostname
-
-If neither pattern matches, sshpass-rs prompts you interactively for the password instead of failing.
-
-### Default mode (no password flag)
-
-If you don't pass any password source flag, sshpass-rs reads the password from stdin before spawning the command. This matches the original sshpass behavior.
-
-```sh
+# From stdin
 echo "hunter2" | sshpass-rs ssh user@host
 ```
 
-### Stdin forwarding
+### Keychain Workflow
 
-After the password is sent, stdin is forwarded to the PTY. Interactive SSH sessions work normally: you can run commands, use a shell, and type input as usual.
+```sh
+# Store once
+sshpass-rs --store user@host
 
-## Exit codes
+# Use everywhere
+sshpass-rs -k ssh user@host
+sshpass-rs -k scp user@host:/remote/file ./local/
+sshpass-rs -k rsync -avz user@host:/data/ ./backup/
+
+# Explicit key name
+sshpass-rs --key myserver ssh -l user host
+
+# Manage stored entries
+sshpass-rs --list
+sshpass-rs --delete user@host
+```
+
+### 1Password Workflow
+
+```sh
+export SSHPASS_RS_BACKEND=op
+
+# Store in 1Password
+sshpass-rs --store user@host
+
+# Use from 1Password
+sshpass-rs -k ssh user@host
+
+# Use a specific vault
+SSHPASS_RS_VAULT=Production sshpass-rs -k ssh user@host
+
+# List / delete
+sshpass-rs --list
+sshpass-rs --delete user@host
+```
+
+### Advanced
+
+```sh
+# Custom prompt pattern (non-English systems)
+sshpass-rs -p hunter2 -P "Passwort:" ssh user@host
+
+# Verbose diagnostics
+sshpass-rs -v -k ssh user@host
+```
+
+## Exit Codes
 
 | Code | Name | Meaning |
 |------|------|---------|
 | 0 | Success | Command completed successfully |
-| 1 | InvalidArguments | Missing required argument (e.g., no wrapped command) |
-| 2 | ConflictingArguments | Multiple password sources specified, or bad flag syntax |
-| 3 | RuntimeError | PTY creation failed, child spawn failed, Keychain access error, or I/O error |
-| 4 | ParseError | Could not parse output from the child process |
+| 1 | InvalidArguments | Missing required argument |
+| 2 | ConflictingArguments | Multiple password sources or bad flags |
+| 3 | RuntimeError | PTY, spawn, keychain, or I/O error |
+| 4 | ParseError | Could not parse child process output |
 | 5 | IncorrectPassword | SSH rejected the password |
 | 6 | HostKeyUnknown | Host key not in known_hosts |
 | 7 | HostKeyChanged | Host key changed since last connection |
-
-## Compatibility
-
-### Same as original sshpass
-
-- `-p`, `-f`, `-d`, `-e` password sources work identically
-- `-P` prompt pattern matching works identically
-- `-v` verbose flag works identically
-- Exit codes 0-7 match the original sshpass specification
-- Works with any command that reads a password from a PTY
-
-### New in sshpass-rs
-
-- `-k` / `--key`: Keychain-backed password lookup
-- `--store`: Securely store a password in the macOS Keychain
-- `--delete`: Remove a stored password
-- `--list`: List all managed Keychain entries
-- Auto-detection of `user@host` key from the wrapped SSH command
-- Interactive fallback prompt when a Keychain key is missing
-- Passwords held as `SecretString` (zeroized on drop)
-- `SSHPASS_RS_BACKEND`: 1Password backend support via `op` CLI
 
 ## Security
 
 | Property | Original sshpass | sshpass-rs |
 |----------|-----------------|------------|
-| Password in process args (`-p`) | Visible in `ps` | Visible in `ps` (same) |
+| Password in args (`-p`) | Visible in `ps` | Visible in `ps` (same) |
 | Password in file (`-f`) | Plaintext file | Plaintext file (same) |
 | Password in env (`-e`) | Cleared before exec | Cleared before exec |
 | Keychain storage | Not supported | macOS Keychain (encrypted at rest) |
 | 1Password storage | Not supported | `op` CLI (encrypted vault, biometric unlock) |
 | In-memory handling | Plain string | `SecretString` (zeroized on drop) |
 
-The `-p` flag is the least secure option on any platform because the password appears in the process argument list. For scripts and automation, prefer `-k` with a Keychain-stored password.
+**Recommendation:** avoid `-p` — the password is visible in `ps`. Use `-k` with stored passwords for scripts and automation.
 
-## Works with
+## Compatibility
 
-Any command that prompts for a password on a PTY:
+### Same as original sshpass
 
-- `ssh`
-- `scp`
-- `sftp`
-- `rsync` (via `--rsh`)
-- Any other PTY-based tool that reads a password interactively
+- `-p`, `-f`, `-d`, `-e` password sources
+- `-P` prompt pattern matching
+- `-v` verbose mode
+- Exit codes 0–7
+- Works with any PTY-based password prompt (`ssh`, `scp`, `sftp`, `rsync`, etc.)
+
+### New in sshpass-rs
+
+- `-k` / `--key` — backend-backed password lookup
+- `--store` / `--delete` / `--list` — password management
+- 1Password backend via `SSHPASS_RS_BACKEND=op`
+- Auto-detection of `user@host` from SSH arguments
+- Interactive fallback when key is missing
+- Context-sensitive `--help`
+- Cross-platform backend guard (non-macOS → requires 1Password)
 
 ## Limitations
 
-- macOS only (v1). The Keychain integration uses the Apple native backend. Linux support is not included in this release.
-- The 1Password backend requires the `op` CLI to be installed separately. See [1password.com/downloads/command-line](https://1password.com/downloads/command-line/).
-- No config file. All options are passed on the command line.
-- No async runtime. The PTY loop is synchronous.
+- macOS Keychain backend is macOS-only. On other platforms, use `SSHPASS_RS_BACKEND=op`.
+- 1Password backend requires the [`op` CLI](https://1password.com/downloads/command-line/).
+- No config file — all options via command line and environment variables.
