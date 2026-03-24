@@ -173,7 +173,10 @@ impl PasswordSource for KeychainPassword {
     fn resolve(&self) -> Result<SecretString, SshpassError> {
         match self.backend.get(&self.key) {
             Ok(password) => Ok(password),
-            Err(_) => self.prompt_and_maybe_save(),
+            Err(SshpassError::KeychainAccess(ref msg)) if msg.starts_with("key not found:") => {
+                self.prompt_and_maybe_save()
+            }
+            Err(e) => Err(e),
         }
     }
 }
@@ -489,5 +492,55 @@ mod tests {
 
         std::env::remove_var("SSHPASS_RS_TEST_PASSWORD");
         std::env::remove_var("SSHPASS_RS_TEST_SAVE");
+    }
+
+    /// A mock backend that always returns an operational error (not "key not found").
+    /// Used to verify that `KeychainPassword::resolve()` propagates backend failures
+    /// instead of silently falling back to prompting.
+    struct FailingKeychainBackend;
+
+    impl KeychainBackend for FailingKeychainBackend {
+        fn store(&self, _key: &str, _password: &SecretString) -> Result<(), SshpassError> {
+            Err(SshpassError::KeychainAccess(
+                "1Password CLI (op) not found".to_string(),
+            ))
+        }
+
+        fn get(&self, _key: &str) -> Result<SecretString, SshpassError> {
+            Err(SshpassError::KeychainAccess(
+                "1Password CLI (op) not found".to_string(),
+            ))
+        }
+
+        fn delete(&self, _key: &str) -> Result<(), SshpassError> {
+            Err(SshpassError::KeychainAccess(
+                "1Password CLI (op) not found".to_string(),
+            ))
+        }
+
+        fn list(&self) -> Result<Vec<String>, SshpassError> {
+            Err(SshpassError::KeychainAccess(
+                "1Password CLI (op) not found".to_string(),
+            ))
+        }
+    }
+
+    #[test]
+    fn test_keychain_backend_failure_propagates() {
+        let backend = FailingKeychainBackend;
+        let src = KeychainPassword::new("any_key".to_string(), Box::new(backend));
+
+        let result = src.resolve();
+        assert!(
+            result.is_err(),
+            "operational error should propagate, not fallback to prompt"
+        );
+
+        match result.unwrap_err() {
+            SshpassError::KeychainAccess(msg) => {
+                assert_eq!(msg, "1Password CLI (op) not found");
+            }
+            other => panic!("expected KeychainAccess error, got: {}", other),
+        }
     }
 }
