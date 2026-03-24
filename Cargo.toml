@@ -1,0 +1,29 @@
+[package]
+name = "sshpass-rs"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "sshpass-rs"
+path = "src/main.rs"
+
+[[bin]]
+name = "fake_ssh"
+path = "src/bin/fake_ssh.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+keyring = { version = "3", features = ["apple-native"] }
+portable-pty = "0.9"
+secrecy = { version = "0.10", features = ["serde"] }
+zeroize = { version = "1", features = ["derive"] }
+rpassword = "7"
+signal-hook = "0.3"
+nix = { version = "0.29", features = ["signal", "term", "ioctl"] }
+anyhow = "1"
+thiserror = "2"
+
+[dev-dependencies]
+assert_cmd = "2"
+predicates = "3"
+tempfile = "3"
