@@ -64,6 +64,51 @@ These are standalone operations. No wrapped command is needed.
 | `--delete <key>` | Delete the Keychain entry for `<key>` |
 | `--list` | List all Keychain entries managed by sshpass-rs |
 
+### 1Password backend
+
+Set `SSHPASS_RS_BACKEND=op` (or `1password`) to store and retrieve passwords through 1Password instead of the macOS Keychain.
+
+**Prerequisites:** the [1Password CLI (`op`)](https://1password.com/downloads/command-line/) must be installed and signed in.
+
+#### Environment variables
+
+| Variable | Description |
+|----------|-------------|
+| `SSHPASS_RS_BACKEND` | Set to `op` or `1password` to use 1Password instead of macOS Keychain |
+| `SSHPASS_RS_VAULT` | Optional. Specify which 1Password vault to use (defaults to the personal vault) |
+
+#### Usage
+
+```sh
+# Store a password in 1Password
+SSHPASS_RS_BACKEND=op sshpass-rs --store user@host
+
+# Use a stored 1Password password
+SSHPASS_RS_BACKEND=op sshpass-rs -k ssh user@host
+
+# List all sshpass-rs managed passwords in 1Password
+SSHPASS_RS_BACKEND=op sshpass-rs --list
+
+# Delete a stored password from 1Password
+SSHPASS_RS_BACKEND=op sshpass-rs --delete user@host
+```
+
+**With a specific vault:**
+
+```sh
+SSHPASS_RS_VAULT=Production SSHPASS_RS_BACKEND=op sshpass-rs -k ssh user@host
+```
+
+**Service account for automation (no interactive prompt):**
+
+```sh
+export OP_SERVICE_ACCOUNT_TOKEN=ops_...
+export SSHPASS_RS_BACKEND=op
+sshpass-rs -k ssh user@host
+```
+
+Passwords are stored as Password items tagged `sshpass-rs`. Authentication is handled entirely by the `op` CLI (biometric unlock, service account token, or session token).
+
 ### Examples
 
 **Pass password directly (original sshpass style):**
@@ -201,6 +246,7 @@ After the password is sent, stdin is forwarded to the PTY. Interactive SSH sessi
 - Auto-detection of `user@host` key from the wrapped SSH command
 - Interactive fallback prompt when a Keychain key is missing
 - Passwords held as `SecretString` (zeroized on drop)
+- `SSHPASS_RS_BACKEND`: 1Password backend support via `op` CLI
 
 ## Security
 
@@ -210,6 +256,7 @@ After the password is sent, stdin is forwarded to the PTY. Interactive SSH sessi
 | Password in file (`-f`) | Plaintext file | Plaintext file (same) |
 | Password in env (`-e`) | Cleared before exec | Cleared before exec |
 | Keychain storage | Not supported | macOS Keychain (encrypted at rest) |
+| 1Password storage | Not supported | `op` CLI (encrypted vault, biometric unlock) |
 | In-memory handling | Plain string | `SecretString` (zeroized on drop) |
 
 The `-p` flag is the least secure option on any platform because the password appears in the process argument list. For scripts and automation, prefer `-k` with a Keychain-stored password.
@@ -227,5 +274,6 @@ Any command that prompts for a password on a PTY:
 ## Limitations
 
 - macOS only (v1). The Keychain integration uses the Apple native backend. Linux support is not included in this release.
+- The 1Password backend requires the `op` CLI to be installed separately. See [1password.com/downloads/command-line](https://1password.com/downloads/command-line/).
 - No config file. All options are passed on the command line.
 - No async runtime. The PTY loop is synchronous.
