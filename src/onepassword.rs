@@ -264,6 +264,167 @@ impl KeychainBackend for OnePasswordBackend {
 mod tests {
     use super::*;
     use secrecy::ExposeSecret;
+    use std::sync::Mutex;
+
+    /// Serializes env-var mutations so parallel test threads don't race.
+    static ENV_MUTEX: Mutex<()> = Mutex::new(());
+
+    fn mock_op_path() -> String {
+        let manifest_dir = env!("CARGO_MANIFEST_DIR");
+        format!("{}/tests/fixtures/mock_op.sh", manifest_dir)
+    }
+
+    // ── Backend integration tests (via with_op_path) ──────────────────
+
+    #[test]
+    fn test_op_not_found() {
+        let backend = OnePasswordBackend::with_op_path(None, "/nonexistent/op".to_string());
+        let result = backend.list();
+
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            SshpassError::KeychainAccess(msg) => {
+                assert!(
+                    msg.contains("1Password CLI (op) not found"),
+                    "Error should mention op not found: {msg}"
+                );
+            }
+            other => panic!("Expected KeychainAccess, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_op_stderr_included() {
+        // `false` always exits 1 with empty stderr.
+        let backend = OnePasswordBackend::with_op_path(None, "false".to_string());
+        let result = backend.list();
+
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            SshpassError::KeychainAccess(msg) => {
+                assert!(
+                    msg.contains("op failed:"),
+                    "Error should contain 'op failed:': {msg}"
+                );
+            }
+            other => panic!("Expected KeychainAccess, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_list_returns_titles() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        let backend = OnePasswordBackend::with_op_path(None, mock_op_path());
+        let titles = backend.list().expect("list should succeed");
+        assert_eq!(titles, vec!["user@host", "root@server"]);
+    }
+
+    #[test]
+    fn test_list_empty() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        std::env::set_var("MOCK_OP_EMPTY", "1");
+
+        let backend = OnePasswordBackend::with_op_path(None, mock_op_path());
+        let titles = backend.list().expect("list should succeed");
+
+        std::env::remove_var("MOCK_OP_EMPTY");
+        assert!(titles.is_empty());
+    }
+
+    #[test]
+    fn test_get_returns_password() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        let backend = OnePasswordBackend::with_op_path(None, mock_op_path());
+        let password = backend.get("user@host").expect("get should succeed");
+        assert_eq!(password.expose_secret(), "s3cret");
+    }
+
+    #[test]
+    fn test_get_not_found() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        let backend = OnePasswordBackend::with_op_path(None, mock_op_path());
+        let result = backend.get("nonexistent");
+
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            SshpassError::KeychainAccess(msg) => {
+                assert!(
+                    msg.contains("key not found: nonexistent"),
+                    "Error should mention key not found: {msg}"
+                );
+            }
+            other => panic!("Expected KeychainAccess, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_get_exact_match() {
+        // "user" should NOT match "user@host" — exact match only.
+        let _guard = ENV_MUTEX.lock().unwrap();
+        let backend = OnePasswordBackend::with_op_path(None, mock_op_path());
+        let result = backend.get("user");
+
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            SshpassError::KeychainAccess(msg) => {
+                assert!(
+                    msg.contains("key not found: user"),
+                    "Error should mention key not found: {msg}"
+                );
+            }
+            other => panic!("Expected KeychainAccess, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_delete_not_found() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        let backend = OnePasswordBackend::with_op_path(None, mock_op_path());
+        let result = backend.delete("nonexistent");
+
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            SshpassError::KeychainAccess(msg) => {
+                assert!(
+                    msg.contains("key not found: nonexistent"),
+                    "Error should mention key not found: {msg}"
+                );
+            }
+            other => panic!("Expected KeychainAccess, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_store_constructs_correct_command() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        let backend = OnePasswordBackend::with_op_path(None, mock_op_path());
+        let password = SecretString::from("mypass");
+        backend
+            .store("test@host", &password)
+            .expect("store should succeed");
+    }
+
+    #[test]
+    fn test_store_without_vault_omits_flag() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        let backend = OnePasswordBackend::with_op_path(None, mock_op_path());
+        let password = SecretString::from("mypass");
+        backend
+            .store("test@host", &password)
+            .expect("store without vault should succeed");
+    }
+
+    #[test]
+    fn test_delete_resolves_id() {
+        // "user@host" maps to id "abc123" which mock accepts for delete.
+        let _guard = ENV_MUTEX.lock().unwrap();
+        let backend = OnePasswordBackend::with_op_path(None, mock_op_path());
+        backend
+            .delete("user@host")
+            .expect("delete should succeed for known item");
+    }
+
+    // ── Parse-only unit tests ─────────────────────────────────────────
 
     #[test]
     fn test_parse_item_list() {
