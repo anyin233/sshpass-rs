@@ -11,6 +11,7 @@ use crate::cli::Cli;
 use crate::error::{SshpassError, SshpassExitCode};
 use crate::keychain::{FileKeychainBackend, KeychainBackend, KeychainManager, RealKeychainBackend};
 use crate::matcher::PromptMatcher;
+use crate::onepassword::OnePasswordBackend;
 use crate::password::PasswordResolver;
 use crate::pty::PtySession;
 
@@ -90,6 +91,12 @@ fn build_keychain_manager() -> KeychainManager {
 /// Returns:
 /// - A boxed keychain backend for standalone operations or password resolution.
 fn build_keychain_backend() -> Box<dyn KeychainBackend> {
+    if let Ok(backend) = std::env::var("SSHPASS_RS_BACKEND") {
+        if backend == "op" || backend == "1password" {
+            let vault = std::env::var("SSHPASS_RS_VAULT").ok();
+            return Box::new(OnePasswordBackend::new(vault));
+        }
+    }
     match std::env::var("SSHPASS_RS_TEST_KEYCHAIN_FILE") {
         Ok(path) => Box::new(FileKeychainBackend::new(path)),
         Err(_) => Box::new(RealKeychainBackend),
