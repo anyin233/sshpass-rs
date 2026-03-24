@@ -17,6 +17,7 @@ pub struct OpItem {
     #[serde(default)]
     pub title: String,
     #[serde(default)]
+    #[allow(dead_code)]
     pub category: String,
 }
 
@@ -26,10 +27,12 @@ pub struct OpItem {
 #[derive(Debug, Deserialize)]
 pub struct OpItemDetail {
     #[serde(default)]
+    #[allow(dead_code)]
     pub id: String,
     #[serde(default)]
     pub title: String,
     #[serde(default)]
+    #[allow(dead_code)]
     pub category: String,
     #[serde(default)]
     pub fields: Vec<OpField>,
@@ -47,6 +50,7 @@ pub struct OpField {
     #[serde(default)]
     pub value: Option<String>,
     #[serde(default)]
+    #[allow(dead_code)]
     pub label: Option<String>,
 }
 
@@ -128,6 +132,7 @@ impl OnePasswordBackend {
         }
     }
 
+    #[allow(dead_code)]
     pub fn with_op_path(vault: Option<String>, op_path: String) -> Self {
         Self { vault, op_path }
     }
