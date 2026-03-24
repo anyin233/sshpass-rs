@@ -376,3 +376,64 @@ fn verbose_shows_detected_and_sending() {
         .stderr(predicate::str::contains("SSHPASS detected password prompt"))
         .stderr(predicate::str::contains("SSHPASS sending password"));
 }
+
+// GIVEN -v -p testpass, WHEN fake_ssh --mode success, THEN stderr contains password source diagnostic
+#[test]
+fn test_verbose_password_source_p_flag() {
+    Command::cargo_bin("sshpass-rs")
+        .expect("binary exists")
+        .args(["-v", "-p", "testpass", &fake_ssh_bin(), "--mode", "success"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains(
+            "SSHPASS_RS: using password from -p argument",
+        ));
+}
+
+// GIVEN -v --list with default backend, THEN stderr contains backend checking diagnostic
+#[test]
+fn test_verbose_backend_selection_default() {
+    let (_dir, keychain_file) = temp_keychain_env();
+
+    Command::cargo_bin("sshpass-rs")
+        .expect("binary exists")
+        .env("SSHPASS_RS_TEST_KEYCHAIN_FILE", keychain_file)
+        .args(["-v", "--list"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains(
+            "SSHPASS_RS: checking SSHPASS_RS_BACKEND",
+        ));
+}
+
+// GIVEN -v --list, THEN stderr contains "listing stored keys" diagnostic
+#[test]
+fn test_verbose_standalone_list() {
+    let (_dir, keychain_file) = temp_keychain_env();
+
+    Command::cargo_bin("sshpass-rs")
+        .expect("binary exists")
+        .env("SSHPASS_RS_TEST_KEYCHAIN_FILE", keychain_file)
+        .args(["-v", "--list"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("SSHPASS_RS: listing stored keys"));
+}
+
+// GIVEN -v -p SUPERSECRET_XYZ_123, WHEN fake_ssh --mode success, THEN secret NOT in stderr
+#[test]
+fn test_verbose_no_secret_leak() {
+    Command::cargo_bin("sshpass-rs")
+        .expect("binary exists")
+        .args([
+            "-v",
+            "-p",
+            "SUPERSECRET_XYZ_123",
+            &fake_ssh_bin(),
+            "--mode",
+            "success",
+        ])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("SUPERSECRET_XYZ_123").not());
+}

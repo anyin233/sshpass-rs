@@ -144,3 +144,58 @@ fn test_existing_keychain_tests_unaffected() {
         .success()
         .stdout(predicate::str::contains("(empty)"));
 }
+
+// GIVEN SSHPASS_RS_BACKEND=op with mock op on PATH and -v,
+// WHEN sshpass-rs -v --list,
+// THEN stderr contains "selected 1Password backend".
+#[test]
+fn test_verbose_op_backend_selection() {
+    let (_dir, path) = setup_mock_op_in_path();
+
+    Command::cargo_bin("sshpass-rs")
+        .expect("binary exists")
+        .env("SSHPASS_RS_BACKEND", "op")
+        .env("PATH", &path)
+        .args(["-v", "--list"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains(
+            "SSHPASS_RS: selected 1Password backend",
+        ));
+}
+
+// GIVEN SSHPASS_RS_BACKEND=op with mock op on PATH and -v,
+// WHEN sshpass-rs -v --list,
+// THEN stderr contains "running: op" showing the op command.
+#[test]
+fn test_verbose_op_command_shown() {
+    let (_dir, path) = setup_mock_op_in_path();
+
+    Command::cargo_bin("sshpass-rs")
+        .expect("binary exists")
+        .env("SSHPASS_RS_BACKEND", "op")
+        .env("PATH", &path)
+        .args(["-v", "--list"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("SSHPASS_RS: running: op"));
+}
+
+// GIVEN SSHPASS_RS_BACKEND=invalid with -v and test keychain file,
+// WHEN sshpass-rs -v --list,
+// THEN stderr contains "unknown backend 'invalid'" warning.
+#[test]
+fn test_verbose_unknown_backend_warning() {
+    let (_dir, keychain_file) = temp_keychain_env();
+
+    Command::cargo_bin("sshpass-rs")
+        .expect("binary exists")
+        .env("SSHPASS_RS_BACKEND", "invalid")
+        .env("SSHPASS_RS_TEST_KEYCHAIN_FILE", keychain_file)
+        .args(["-v", "--list"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains(
+            "SSHPASS_RS: unknown backend 'invalid'",
+        ));
+}
