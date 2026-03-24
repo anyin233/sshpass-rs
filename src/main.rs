@@ -2,6 +2,7 @@ mod cli;
 mod error;
 mod keychain;
 mod matcher;
+mod onepassword;
 mod password;
 mod pty;
 mod signals;
