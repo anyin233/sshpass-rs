@@ -1,4 +1,4 @@
-# sshpass-rs
+# sshpassx
 
 A drop-in Rust replacement for [sshpass](https://sourceforge.net/projects/sshpass/) with secure password storage via macOS Keychain and 1Password.
 
@@ -6,23 +6,23 @@ A drop-in Rust replacement for [sshpass](https://sourceforge.net/projects/sshpas
 
 ```sh
 # Install
-cargo install --path .
+cargo install sshpassx
 
 # Store a password once, use it everywhere
-sshpass-rs --store user@host        # prompts for password, saves to Keychain
-sshpass-rs -k ssh user@host         # looks up stored password automatically
-sshpass-rs -k scp user@host:f .     # works with scp, rsync, sftp, etc.
+sshpassx --store user@host        # prompts for password, saves to Keychain
+sshpassx -k ssh user@host         # looks up stored password automatically
+sshpassx -k scp user@host:f .     # works with scp, rsync, sftp, etc.
 
 # Or pass a password directly (original sshpass style)
-sshpass-rs -p mypass ssh user@host
+sshpassx -p mypass ssh user@host
 ```
 
 **Using 1Password instead of macOS Keychain?**
 
 ```sh
-export SSHPASS_RS_BACKEND=op
-sshpass-rs --store user@host
-sshpass-rs -k ssh user@host
+export SSHPASSX_BACKEND=op
+sshpassx --store user@host
+sshpassx -k ssh user@host
 ```
 
 ---
@@ -30,37 +30,42 @@ sshpass-rs -k ssh user@host
 ## Installation
 
 ```sh
-# From source
+# From crates.io
+cargo install sshpassx
+
+# Or from source
 cargo install --path .
 
 # Or build manually
 cargo build --release
-# Binary at: target/release/sshpass-rs
+# Binary at: target/release/sshpassx
 ```
 
 ## Configuration
 
 ### Backend Selection
 
-sshpass-rs supports two password storage backends, controlled by environment variables:
+sshpassx supports two password storage backends, controlled by environment variables:
 
 | Variable | Values | Description |
 |----------|--------|-------------|
-| `SSHPASS_RS_BACKEND` | `op`, `1password` | Use 1Password instead of macOS Keychain. Unset = macOS Keychain. |
-| `SSHPASS_RS_VAULT` | vault name | 1Password vault to use (optional, defaults to personal vault) |
+| `SSHPASSX_BACKEND` | `op`, `1password` | Use 1Password instead of macOS Keychain. Unset = macOS Keychain. |
+| `SSHPASSX_VAULT` | vault name | 1Password vault to use (optional, defaults to personal vault) |
+
+> **Backward compatibility:** The legacy `SSHPASS_RS_BACKEND` and `SSHPASS_RS_VAULT` environment variables are still accepted as fallbacks.
 
 **macOS Keychain** (default) — passwords are stored in the system Keychain, encrypted at rest, protected by your login password.
 
 **1Password** — passwords are stored as tagged items in your 1Password vault. Requires the [1Password CLI (`op`)](https://1password.com/downloads/command-line/) to be installed and authenticated.
 
-> On non-macOS platforms, macOS Keychain is unavailable. Set `SSHPASS_RS_BACKEND=op` to use 1Password instead.
+> On non-macOS platforms, macOS Keychain is unavailable. Set `SSHPASSX_BACKEND=op` to use 1Password instead.
 
 #### 1Password Service Account (for automation)
 
 ```sh
 export OP_SERVICE_ACCOUNT_TOKEN=ops_...
-export SSHPASS_RS_BACKEND=op
-sshpass-rs -k ssh user@host
+export SSHPASSX_BACKEND=op
+sshpassx -k ssh user@host
 ```
 
 ### Verbose / Diagnostic Output
@@ -68,15 +73,15 @@ sshpass-rs -k ssh user@host
 Use `-v` to see which backend is selected, what commands are executed, and how password resolution proceeds:
 
 ```sh
-sshpass-rs -v -k ssh user@host
+sshpassx -v -k ssh user@host
 ```
 
 ```
-SSHPASS_RS: checking SSHPASS_RS_BACKEND environment variable
-SSHPASS_RS: selected OS keychain backend
-SSHPASS_RS: using keychain with key 'user@host'
-SSHPASS_RS: querying backend for key 'user@host'
-SSHPASS_RS: key 'user@host' found in backend
+SSHPASSX: checking SSHPASSX_BACKEND environment variable
+SSHPASSX: selected OS keychain backend
+SSHPASSX: using keychain with key 'user@host'
+SSHPASSX: querying backend for key 'user@host'
+SSHPASSX: key 'user@host' found in backend
 SSHPASS searching for password prompt using match "assword:"
 SSHPASS detected password prompt
 SSHPASS sending password
@@ -85,11 +90,11 @@ SSHPASS sending password
 ## Usage
 
 ```
-sshpass-rs [OPTIONS] <command> [args...]
-sshpass-rs --store <key>
-sshpass-rs --delete <key>
-sshpass-rs --list
-sshpass-rs --help
+sshpassx [OPTIONS] <command> [args...]
+sshpassx --store <key>
+sshpassx --delete <key>
+sshpassx --list
+sshpassx --help
 ```
 
 ### Password Source Flags
@@ -114,7 +119,7 @@ Standalone operations — no wrapped command needed.
 |------|-------------|
 | `--store <key>` | Prompt for a password and store it under `<key>` |
 | `--delete <key>` | Delete the stored entry for `<key>` |
-| `--list` | List all entries managed by sshpass-rs |
+| `--list` | List all entries managed by sshpassx |
 | `--key <value>` | Explicit key name for `-k` (overrides auto-detection) |
 
 ### Other Flags
@@ -140,64 +145,64 @@ If neither pattern matches, you're prompted interactively.
 
 ```sh
 # Direct password
-sshpass-rs -p hunter2 ssh user@host
+sshpassx -p hunter2 ssh user@host
 
 # From file
-sshpass-rs -f ~/.ssh/mypassword ssh user@host
+sshpassx -f ~/.ssh/mypassword ssh user@host
 
 # From environment variable
-SSHPASS=hunter2 sshpass-rs -e ssh user@host
+SSHPASS=hunter2 sshpassx -e ssh user@host
 
 # From stdin
-echo "hunter2" | sshpass-rs ssh user@host
+echo "hunter2" | sshpassx ssh user@host
 ```
 
 ### Keychain Workflow
 
 ```sh
 # Store once
-sshpass-rs --store user@host
+sshpassx --store user@host
 
 # Use everywhere
-sshpass-rs -k ssh user@host
-sshpass-rs -k scp user@host:/remote/file ./local/
-sshpass-rs -k rsync -avz user@host:/data/ ./backup/
+sshpassx -k ssh user@host
+sshpassx -k scp user@host:/remote/file ./local/
+sshpassx -k rsync -avz user@host:/data/ ./backup/
 
 # Explicit key name
-sshpass-rs --key myserver ssh -l user host
+sshpassx --key myserver ssh -l user host
 
 # Manage stored entries
-sshpass-rs --list
-sshpass-rs --delete user@host
+sshpassx --list
+sshpassx --delete user@host
 ```
 
 ### 1Password Workflow
 
 ```sh
-export SSHPASS_RS_BACKEND=op
+export SSHPASSX_BACKEND=op
 
 # Store in 1Password
-sshpass-rs --store user@host
+sshpassx --store user@host
 
 # Use from 1Password
-sshpass-rs -k ssh user@host
+sshpassx -k ssh user@host
 
 # Use a specific vault
-SSHPASS_RS_VAULT=Production sshpass-rs -k ssh user@host
+SSHPASSX_VAULT=Production sshpassx -k ssh user@host
 
 # List / delete
-sshpass-rs --list
-sshpass-rs --delete user@host
+sshpassx --list
+sshpassx --delete user@host
 ```
 
 ### Advanced
 
 ```sh
 # Custom prompt pattern (non-English systems)
-sshpass-rs -p hunter2 -P "Passwort:" ssh user@host
+sshpassx -p hunter2 -P "Passwort:" ssh user@host
 
 # Verbose diagnostics
-sshpass-rs -v -k ssh user@host
+sshpassx -v -k ssh user@host
 ```
 
 ## Exit Codes
@@ -215,7 +220,7 @@ sshpass-rs -v -k ssh user@host
 
 ## Security
 
-| Property | Original sshpass | sshpass-rs |
+| Property | Original sshpass | sshpassx |
 |----------|-----------------|------------|
 | Password in args (`-p`) | Visible in `ps` | Visible in `ps` (same) |
 | Password in file (`-f`) | Plaintext file | Plaintext file (same) |
@@ -236,11 +241,11 @@ sshpass-rs -v -k ssh user@host
 - Exit codes 0–7
 - Works with any PTY-based password prompt (`ssh`, `scp`, `sftp`, `rsync`, etc.)
 
-### New in sshpass-rs
+### New in sshpassx
 
 - `-k` / `--key` — backend-backed password lookup
 - `--store` / `--delete` / `--list` — password management
-- 1Password backend via `SSHPASS_RS_BACKEND=op`
+- 1Password backend via `SSHPASSX_BACKEND=op`
 - Auto-detection of `user@host` from SSH arguments
 - Interactive fallback when key is missing
 - Context-sensitive `--help`
@@ -248,6 +253,6 @@ sshpass-rs -v -k ssh user@host
 
 ## Limitations
 
-- macOS Keychain backend is macOS-only. On other platforms, use `SSHPASS_RS_BACKEND=op`.
+- macOS Keychain backend is macOS-only. On other platforms, use `SSHPASSX_BACKEND=op`.
 - 1Password backend requires the [`op` CLI](https://1password.com/downloads/command-line/).
 - No config file — all options via command line and environment variables.

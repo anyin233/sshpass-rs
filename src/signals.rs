@@ -14,7 +14,7 @@ pub const CTRL_C_BYTE: u8 = 0x03;
 /// Control byte sent to PTY master when SIGTSTP is received (Ctrl+Z).
 pub const CTRL_Z_BYTE: u8 = 0x1a;
 
-/// Manages Unix signal handling for the sshpass-rs process.
+/// Manages Unix signal handling for the sshpassx process.
 ///
 /// Uses `signal-hook`'s safe `AtomicBool` flag registration to capture signals,
 /// then processes them in the main loop via `check_and_handle()`.

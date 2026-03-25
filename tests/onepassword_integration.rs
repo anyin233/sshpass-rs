@@ -40,16 +40,16 @@ fn temp_keychain_env() -> (TempDir, String) {
     (dir, path.display().to_string())
 }
 
-// GIVEN SSHPASS_RS_BACKEND=op with mock op on PATH,
+// GIVEN SSHPASSX_BACKEND=op with mock op on PATH,
 // WHEN sshpass-rs --list,
 // THEN exit 0 and stdout contains "user@host" and "root@server".
 #[test]
 fn test_list_with_op_backend() {
     let (_dir, path) = setup_mock_op_in_path();
 
-    Command::cargo_bin("sshpass-rs")
+    Command::cargo_bin("sshpassx")
         .expect("binary exists")
-        .env("SSHPASS_RS_BACKEND", "op")
+        .env("SSHPASSX_BACKEND", "op")
         .env("PATH", &path)
         .arg("--list")
         .assert()
@@ -58,16 +58,16 @@ fn test_list_with_op_backend() {
         .stdout(predicate::str::contains("root@server"));
 }
 
-// GIVEN SSHPASS_RS_BACKEND=op with mock op on PATH and MOCK_OP_EMPTY=1,
+// GIVEN SSHPASSX_BACKEND=op with mock op on PATH and MOCK_OP_EMPTY=1,
 // WHEN sshpass-rs --list,
 // THEN exit 0 and stdout contains "(empty)".
 #[test]
 fn test_list_empty_with_op_backend() {
     let (_dir, path) = setup_mock_op_in_path();
 
-    Command::cargo_bin("sshpass-rs")
+    Command::cargo_bin("sshpassx")
         .expect("binary exists")
-        .env("SSHPASS_RS_BACKEND", "op")
+        .env("SSHPASSX_BACKEND", "op")
         .env("PATH", &path)
         .env("MOCK_OP_EMPTY", "1")
         .arg("--list")
@@ -76,34 +76,34 @@ fn test_list_empty_with_op_backend() {
         .stdout(predicate::str::contains("(empty)"));
 }
 
-// GIVEN SSHPASS_RS_BACKEND=op with mock op on PATH and SSHPASS_RS_TEST_PASSWORD=testpass,
+// GIVEN SSHPASSX_BACKEND=op with mock op on PATH and SSHPASSX_TEST_PASSWORD=testpass,
 // WHEN sshpass-rs --store test@host,
 // THEN exit 0 and stdout contains "Password stored".
 #[test]
 fn test_store_with_op_backend() {
     let (_dir, path) = setup_mock_op_in_path();
 
-    Command::cargo_bin("sshpass-rs")
+    Command::cargo_bin("sshpassx")
         .expect("binary exists")
-        .env("SSHPASS_RS_BACKEND", "op")
+        .env("SSHPASSX_BACKEND", "op")
         .env("PATH", &path)
-        .env("SSHPASS_RS_TEST_PASSWORD", "testpass")
+        .env("SSHPASSX_TEST_PASSWORD", "testpass")
         .args(["--store", "test@host"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Password stored"));
 }
 
-// GIVEN SSHPASS_RS_BACKEND=op with mock op on PATH,
+// GIVEN SSHPASSX_BACKEND=op with mock op on PATH,
 // WHEN sshpass-rs --delete user@host,
 // THEN exit 0 and stdout contains "Password deleted".
 #[test]
 fn test_delete_with_op_backend() {
     let (_dir, path) = setup_mock_op_in_path();
 
-    Command::cargo_bin("sshpass-rs")
+    Command::cargo_bin("sshpassx")
         .expect("binary exists")
-        .env("SSHPASS_RS_BACKEND", "op")
+        .env("SSHPASSX_BACKEND", "op")
         .env("PATH", &path)
         .args(["--delete", "user@host"])
         .assert()
@@ -111,7 +111,7 @@ fn test_delete_with_op_backend() {
         .stdout(predicate::str::contains("Password deleted"));
 }
 
-// GIVEN SSHPASS_RS_BACKEND=op but op is NOT on PATH,
+// GIVEN SSHPASSX_BACKEND=op but op is NOT on PATH,
 // WHEN sshpass-rs --list,
 // THEN exit 3 (RuntimeError) and stderr contains "1Password CLI (op) not found".
 #[test]
@@ -119,9 +119,9 @@ fn test_op_not_installed_error() {
     let empty_dir = tempfile::tempdir().expect("expected tempdir for empty PATH");
     let path = empty_dir.path().display().to_string();
 
-    Command::cargo_bin("sshpass-rs")
+    Command::cargo_bin("sshpassx")
         .expect("binary exists")
-        .env("SSHPASS_RS_BACKEND", "op")
+        .env("SSHPASSX_BACKEND", "op")
         .env("PATH", &path)
         .arg("--list")
         .assert()
@@ -129,73 +129,73 @@ fn test_op_not_installed_error() {
         .stderr(predicate::str::contains("1Password CLI (op) not found"));
 }
 
-// GIVEN no SSHPASS_RS_BACKEND set (default file backend),
+// GIVEN no SSHPASSX_BACKEND set (default file backend),
 // WHEN sshpass-rs --list with a fresh temp keychain file,
 // THEN exit 0 and stdout contains "(empty)" — existing behavior preserved.
 #[test]
 fn test_existing_keychain_tests_unaffected() {
     let (_dir, keychain_file) = temp_keychain_env();
 
-    Command::cargo_bin("sshpass-rs")
+    Command::cargo_bin("sshpassx")
         .expect("binary exists")
-        .env("SSHPASS_RS_TEST_KEYCHAIN_FILE", keychain_file)
+        .env("SSHPASSX_TEST_KEYCHAIN_FILE", keychain_file)
         .arg("--list")
         .assert()
         .success()
         .stdout(predicate::str::contains("(empty)"));
 }
 
-// GIVEN SSHPASS_RS_BACKEND=op with mock op on PATH and -v,
+// GIVEN SSHPASSX_BACKEND=op with mock op on PATH and -v,
 // WHEN sshpass-rs -v --list,
 // THEN stderr contains "selected 1Password backend".
 #[test]
 fn test_verbose_op_backend_selection() {
     let (_dir, path) = setup_mock_op_in_path();
 
-    Command::cargo_bin("sshpass-rs")
+    Command::cargo_bin("sshpassx")
         .expect("binary exists")
-        .env("SSHPASS_RS_BACKEND", "op")
+        .env("SSHPASSX_BACKEND", "op")
         .env("PATH", &path)
         .args(["-v", "--list"])
         .assert()
         .success()
         .stderr(predicate::str::contains(
-            "SSHPASS_RS: selected 1Password backend",
+            "SSHPASSX: selected 1Password backend",
         ));
 }
 
-// GIVEN SSHPASS_RS_BACKEND=op with mock op on PATH and -v,
+// GIVEN SSHPASSX_BACKEND=op with mock op on PATH and -v,
 // WHEN sshpass-rs -v --list,
 // THEN stderr contains "running: op" showing the op command.
 #[test]
 fn test_verbose_op_command_shown() {
     let (_dir, path) = setup_mock_op_in_path();
 
-    Command::cargo_bin("sshpass-rs")
+    Command::cargo_bin("sshpassx")
         .expect("binary exists")
-        .env("SSHPASS_RS_BACKEND", "op")
+        .env("SSHPASSX_BACKEND", "op")
         .env("PATH", &path)
         .args(["-v", "--list"])
         .assert()
         .success()
-        .stderr(predicate::str::contains("SSHPASS_RS: running: op"));
+        .stderr(predicate::str::contains("SSHPASSX: running: op"));
 }
 
-// GIVEN SSHPASS_RS_BACKEND=invalid with -v and test keychain file,
+// GIVEN SSHPASSX_BACKEND=invalid with -v and test keychain file,
 // WHEN sshpass-rs -v --list,
 // THEN stderr contains "unknown backend 'invalid'" warning.
 #[test]
 fn test_verbose_unknown_backend_warning() {
     let (_dir, keychain_file) = temp_keychain_env();
 
-    Command::cargo_bin("sshpass-rs")
+    Command::cargo_bin("sshpassx")
         .expect("binary exists")
-        .env("SSHPASS_RS_BACKEND", "invalid")
-        .env("SSHPASS_RS_TEST_KEYCHAIN_FILE", keychain_file)
+        .env("SSHPASSX_BACKEND", "invalid")
+        .env("SSHPASSX_TEST_KEYCHAIN_FILE", keychain_file)
         .args(["-v", "--list"])
         .assert()
         .success()
         .stderr(predicate::str::contains(
-            "SSHPASS_RS: unknown backend 'invalid'",
+            "SSHPASSX: unknown backend 'invalid'",
         ));
 }

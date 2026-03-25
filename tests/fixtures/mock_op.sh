@@ -2,7 +2,7 @@
 # mock_op.sh — Mimics the 1Password `op` CLI for integration testing.
 # Returns canned responses based on arguments.
 
-# Strip --vault <value> and --format <value> flags from args for easier matching
+# Strip --vault <value>, --format <value>, and --tags <value> flags from args for easier matching
 ARGS=()
 SKIP_NEXT=0
 for arg in "$@"; do
@@ -10,7 +10,7 @@ for arg in "$@"; do
         SKIP_NEXT=0
         continue
     fi
-    if [[ "$arg" == "--vault" || "$arg" == "--format" ]]; then
+    if [[ "$arg" == "--vault" || "$arg" == "--format" || "$arg" == "--tags" ]]; then
         SKIP_NEXT=1
         continue
     fi

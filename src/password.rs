@@ -150,14 +150,18 @@ impl KeychainPassword {
     fn prompt_and_maybe_save(&self) -> Result<SecretString, SshpassError> {
         eprintln!("No password found for key '{}' in Keychain.", self.key);
 
-        let password = match std::env::var("SSHPASS_RS_TEST_PASSWORD") {
+        let password = match std::env::var("SSHPASSX_TEST_PASSWORD")
+            .or_else(|_| std::env::var("SSHPASSX_TEST_PASSWORD"))
+        {
             Ok(test_pw) => test_pw,
             Err(_) => rpassword::prompt_password("Enter password: ").map_err(|e| {
                 SshpassError::PasswordSource(format!("failed to read password: {}", e))
             })?,
         };
 
-        let should_save = match std::env::var("SSHPASS_RS_TEST_SAVE") {
+        let should_save = match std::env::var("SSHPASSX_TEST_SAVE")
+            .or_else(|_| std::env::var("SSHPASSX_TEST_SAVE"))
+        {
             Ok(val) => val == "1",
             Err(_) => {
                 eprint!("Save to Keychain? [Y/n]: ");
@@ -182,20 +186,20 @@ impl KeychainPassword {
 impl PasswordSource for KeychainPassword {
     fn resolve(&self) -> Result<SecretString, SshpassError> {
         if self.verbose {
-            eprintln!("SSHPASS_RS: querying backend for key '{}'", self.key);
+            eprintln!("SSHPASSX: querying backend for key '{}'", self.key);
         }
 
         match self.backend.get(&self.key) {
             Ok(password) => {
                 if self.verbose {
-                    eprintln!("SSHPASS_RS: key '{}' found in backend", self.key);
+                    eprintln!("SSHPASSX: key '{}' found in backend", self.key);
                 }
                 Ok(password)
             }
             Err(SshpassError::KeychainAccess(ref msg)) if msg.starts_with("key not found:") => {
                 if self.verbose {
                     eprintln!(
-                        "SSHPASS_RS: key '{}' not found, falling back to interactive prompt",
+                        "SSHPASSX: key '{}' not found, falling back to interactive prompt",
                         self.key
                     );
                 }
@@ -203,7 +207,7 @@ impl PasswordSource for KeychainPassword {
             }
             Err(e) => {
                 if self.verbose {
-                    eprintln!("SSHPASS_RS: backend error: {}", msg_for_error(&e));
+                    eprintln!("SSHPASSX: backend error: {}", msg_for_error(&e));
                 }
                 Err(e)
             }
@@ -440,15 +444,15 @@ mod tests {
         let _lock = ENV_MUTEX.lock().unwrap();
         let backend = InMemoryKeychainBackend::new();
 
-        std::env::set_var("SSHPASS_RS_TEST_PASSWORD", "fallback_pass");
-        std::env::set_var("SSHPASS_RS_TEST_SAVE", "0");
+        std::env::set_var("SSHPASSX_TEST_PASSWORD", "fallback_pass");
+        std::env::set_var("SSHPASSX_TEST_SAVE", "0");
 
         let src = KeychainPassword::new("missing_key".to_string(), Box::new(backend), false);
         let result = src.resolve().expect("should resolve via test env var");
         assert_eq!(result.expose_secret(), "fallback_pass");
 
-        std::env::remove_var("SSHPASS_RS_TEST_PASSWORD");
-        std::env::remove_var("SSHPASS_RS_TEST_SAVE");
+        std::env::remove_var("SSHPASSX_TEST_PASSWORD");
+        std::env::remove_var("SSHPASSX_TEST_SAVE");
     }
 
     #[test]
@@ -456,15 +460,15 @@ mod tests {
         let _lock = ENV_MUTEX.lock().unwrap();
         let backend = InMemoryKeychainBackend::new();
 
-        std::env::set_var("SSHPASS_RS_TEST_PASSWORD", "save_me_pass");
-        std::env::set_var("SSHPASS_RS_TEST_SAVE", "1");
+        std::env::set_var("SSHPASSX_TEST_PASSWORD", "save_me_pass");
+        std::env::set_var("SSHPASSX_TEST_SAVE", "1");
 
         let src = KeychainPassword::new("save_key".to_string(), Box::new(backend), false);
         let result = src.resolve().expect("should resolve and save");
         assert_eq!(result.expose_secret(), "save_me_pass");
 
-        std::env::remove_var("SSHPASS_RS_TEST_PASSWORD");
-        std::env::remove_var("SSHPASS_RS_TEST_SAVE");
+        std::env::remove_var("SSHPASSX_TEST_PASSWORD");
+        std::env::remove_var("SSHPASSX_TEST_SAVE");
     }
 
     #[test]
@@ -472,15 +476,15 @@ mod tests {
         let _lock = ENV_MUTEX.lock().unwrap();
         let backend = InMemoryKeychainBackend::new();
 
-        std::env::set_var("SSHPASS_RS_TEST_PASSWORD", "nosave_pass");
-        std::env::set_var("SSHPASS_RS_TEST_SAVE", "0");
+        std::env::set_var("SSHPASSX_TEST_PASSWORD", "nosave_pass");
+        std::env::set_var("SSHPASSX_TEST_SAVE", "0");
 
         let src = KeychainPassword::new("nosave_key".to_string(), Box::new(backend), false);
         let result = src.resolve().expect("should resolve without saving");
         assert_eq!(result.expose_secret(), "nosave_pass");
 
-        std::env::remove_var("SSHPASS_RS_TEST_PASSWORD");
-        std::env::remove_var("SSHPASS_RS_TEST_SAVE");
+        std::env::remove_var("SSHPASSX_TEST_PASSWORD");
+        std::env::remove_var("SSHPASSX_TEST_SAVE");
     }
 
     #[test]
@@ -491,8 +495,8 @@ mod tests {
         let backend = Rc::new(InMemoryKeychainBackend::new());
         let backend_clone = Rc::clone(&backend);
 
-        std::env::set_var("SSHPASS_RS_TEST_PASSWORD", "verify_stored");
-        std::env::set_var("SSHPASS_RS_TEST_SAVE", "1");
+        std::env::set_var("SSHPASSX_TEST_PASSWORD", "verify_stored");
+        std::env::set_var("SSHPASSX_TEST_SAVE", "1");
 
         let src = KeychainPassword::new_with_shared_backend(
             "verify_key".to_string(),
@@ -505,8 +509,8 @@ mod tests {
         let stored = backend.get("verify_key").expect("should be stored");
         assert_eq!(stored.expose_secret(), "verify_stored");
 
-        std::env::remove_var("SSHPASS_RS_TEST_PASSWORD");
-        std::env::remove_var("SSHPASS_RS_TEST_SAVE");
+        std::env::remove_var("SSHPASSX_TEST_PASSWORD");
+        std::env::remove_var("SSHPASSX_TEST_SAVE");
     }
 
     #[test]
@@ -517,8 +521,8 @@ mod tests {
         let backend = Rc::new(InMemoryKeychainBackend::new());
         let backend_clone = Rc::clone(&backend);
 
-        std::env::set_var("SSHPASS_RS_TEST_PASSWORD", "dont_store_me");
-        std::env::set_var("SSHPASS_RS_TEST_SAVE", "0");
+        std::env::set_var("SSHPASSX_TEST_PASSWORD", "dont_store_me");
+        std::env::set_var("SSHPASSX_TEST_SAVE", "0");
 
         let src = KeychainPassword::new_with_shared_backend(
             "nostore_key".to_string(),
@@ -531,8 +535,8 @@ mod tests {
         let stored = backend.get("nostore_key");
         assert!(stored.is_err(), "password should NOT be stored in backend");
 
-        std::env::remove_var("SSHPASS_RS_TEST_PASSWORD");
-        std::env::remove_var("SSHPASS_RS_TEST_SAVE");
+        std::env::remove_var("SSHPASSX_TEST_PASSWORD");
+        std::env::remove_var("SSHPASSX_TEST_SAVE");
     }
 
     /// A mock backend that always returns an operational error (not "key not found").

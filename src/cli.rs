@@ -65,7 +65,7 @@ impl Cli {
     /// - Parsed and validated CLI state, or a message plus process exit code.
     pub fn parse_from(args: Vec<String>) -> Result<Self, (String, i32)> {
         let mut argv = Vec::with_capacity(args.len() + 1);
-        argv.push("sshpass-rs".to_string());
+        argv.push("sshpassx".to_string());
         argv.extend(args);
 
         let cli = Self::try_parse_from(argv).map_err(|error| {
@@ -116,13 +116,13 @@ impl Cli {
     fn print_general_help() {
         println!(
             "\
-sshpass-rs — non-interactive SSH password provider
+sshpassx — non-interactive SSH password provider
 
 USAGE:
-    sshpass-rs [OPTIONS] <command> [args...]
-    sshpass-rs --store <key>
-    sshpass-rs --delete <key>
-    sshpass-rs --list
+    sshpassx [OPTIONS] <command> [args...]
+    sshpassx --store <key>
+    sshpassx --delete <key>
+    sshpassx --list
 
 PASSWORD SOURCE FLAGS (mutually exclusive):
     -p <password>    Pass the password directly as an argument
@@ -141,19 +141,21 @@ OTHER FLAGS:
 KEYCHAIN MANAGEMENT (standalone, no wrapped command needed):
     --store <key>    Prompt for a password and store it under <key>
     --delete <key>   Delete the stored entry for <key>
-    --list           List all entries managed by sshpass-rs
+    --list           List all entries managed by sshpassx
 
 BACKEND SELECTION (environment variables):
-    SSHPASS_RS_BACKEND   Set to \"op\" or \"1password\" for 1Password backend.
+    SSHPASSX_BACKEND     Set to \"op\" or \"1password\" for 1Password backend.
                          Default: macOS Keychain.
-    SSHPASS_RS_VAULT     1Password vault to use (optional, default vault if unset).
+                         (Legacy SSHPASS_RS_BACKEND is also accepted.)
+    SSHPASSX_VAULT       1Password vault to use (optional, default vault if unset).
+                         (Legacy SSHPASS_RS_VAULT is also accepted.)
 
 EXAMPLES:
-    sshpass-rs -p mypass ssh user@host
-    sshpass-rs -k ssh user@host
-    sshpass-rs --store user@host
-    sshpass-rs --list
-    SSHPASS_RS_BACKEND=op sshpass-rs -k ssh user@host
+    sshpassx -p mypass ssh user@host
+    sshpassx -k ssh user@host
+    sshpassx --store user@host
+    sshpassx --list
+    SSHPASSX_BACKEND=op sshpassx -k ssh user@host
 
 Use --store --help, --list --help, or -k --help for command-specific help."
         );
@@ -162,39 +164,40 @@ Use --store --help, --list --help, or -k --help for command-specific help."
     fn print_store_help() {
         println!(
             "\
-sshpass-rs --store — store a password in the configured backend
+sshpassx --store — store a password in the configured backend
 
 USAGE:
-    sshpass-rs --store <key>
+    sshpassx --store <key>
 
 DESCRIPTION:
     Prompts for a password interactively and stores it under <key>.
     The key is typically in the format \"user@host\".
 
-    The storage backend is determined by the SSHPASS_RS_BACKEND environment
+    The storage backend is determined by the SSHPASSX_BACKEND environment
     variable. Default: macOS Keychain. Set to \"op\" for 1Password.
+    (Legacy SSHPASS_RS_BACKEND is also accepted.)
 
 OPTIONS:
     -v               Verbose mode; shows which backend is used
     -h, --help       Show this help message
 
 ENVIRONMENT:
-    SSHPASS_RS_BACKEND   \"op\" or \"1password\" → 1Password; unset → macOS Keychain
-    SSHPASS_RS_VAULT     1Password vault name (optional)
+    SSHPASSX_BACKEND     \"op\" or \"1password\" → 1Password; unset → macOS Keychain
+    SSHPASSX_VAULT       1Password vault name (optional)
 
 EXAMPLES:
-    sshpass-rs --store user@host
-    SSHPASS_RS_BACKEND=op sshpass-rs --store user@host"
+    sshpassx --store user@host
+    SSHPASSX_BACKEND=op sshpassx --store user@host"
         );
     }
 
     fn print_delete_help() {
         println!(
             "\
-sshpass-rs --delete — remove a stored password
+sshpassx --delete — remove a stored password
 
 USAGE:
-    sshpass-rs --delete <key>
+    sshpassx --delete <key>
 
 DESCRIPTION:
     Deletes the password stored under <key> from the configured backend.
@@ -204,49 +207,49 @@ OPTIONS:
     -h, --help       Show this help message
 
 ENVIRONMENT:
-    SSHPASS_RS_BACKEND   \"op\" or \"1password\" → 1Password; unset → macOS Keychain
-    SSHPASS_RS_VAULT     1Password vault name (optional)
+    SSHPASSX_BACKEND     \"op\" or \"1password\" → 1Password; unset → macOS Keychain
+    SSHPASSX_VAULT       1Password vault name (optional)
 
 EXAMPLES:
-    sshpass-rs --delete user@host
-    SSHPASS_RS_BACKEND=op sshpass-rs --delete user@host"
+    sshpassx --delete user@host
+    SSHPASSX_BACKEND=op sshpassx --delete user@host"
         );
     }
 
     fn print_list_help() {
         println!(
             "\
-sshpass-rs --list — list stored passwords
+sshpassx --list — list stored passwords
 
 USAGE:
-    sshpass-rs --list
+    sshpassx --list
 
 DESCRIPTION:
-    Lists all password entries managed by sshpass-rs in the configured backend.
-    Only entries tagged/indexed by sshpass-rs are shown.
+    Lists all password entries managed by sshpassx in the configured backend.
+    Only entries tagged/indexed by sshpassx are shown.
 
 OPTIONS:
     -v               Verbose mode; shows which backend is used
     -h, --help       Show this help message
 
 ENVIRONMENT:
-    SSHPASS_RS_BACKEND   \"op\" or \"1password\" → 1Password; unset → macOS Keychain
-    SSHPASS_RS_VAULT     1Password vault name (optional)
+    SSHPASSX_BACKEND     \"op\" or \"1password\" → 1Password; unset → macOS Keychain
+    SSHPASSX_VAULT       1Password vault name (optional)
 
 EXAMPLES:
-    sshpass-rs --list
-    SSHPASS_RS_BACKEND=op sshpass-rs --list"
+    sshpassx --list
+    SSHPASSX_BACKEND=op sshpassx --list"
         );
     }
 
     fn print_keychain_help() {
         println!(
             "\
-sshpass-rs -k — use stored password for SSH authentication
+sshpassx -k — use stored password for SSH authentication
 
 USAGE:
-    sshpass-rs -k <command> [args...]
-    sshpass-rs -k --key <name> <command> [args...]
+    sshpassx -k <command> [args...]
+    sshpassx -k --key <name> <command> [args...]
 
 DESCRIPTION:
     Looks up the password from the configured backend and uses it to
@@ -263,13 +266,13 @@ OPTIONS:
     -h, --help       Show this help message
 
 ENVIRONMENT:
-    SSHPASS_RS_BACKEND   \"op\" or \"1password\" → 1Password; unset → macOS Keychain
-    SSHPASS_RS_VAULT     1Password vault name (optional)
+    SSHPASSX_BACKEND     \"op\" or \"1password\" → 1Password; unset → macOS Keychain
+    SSHPASSX_VAULT       1Password vault name (optional)
 
 EXAMPLES:
-    sshpass-rs -k ssh user@host
-    sshpass-rs -k --key myserver ssh root@10.0.0.1
-    SSHPASS_RS_BACKEND=op sshpass-rs -k ssh user@host"
+    sshpassx -k ssh user@host
+    sshpassx -k --key myserver ssh root@10.0.0.1
+    SSHPASSX_BACKEND=op sshpassx -k ssh user@host"
         );
     }
 

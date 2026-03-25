@@ -19,7 +19,7 @@ fn temp_keychain_env() -> (TempDir, String) {
 // GIVEN -p testpass, WHEN fake_ssh --mode success, THEN exit 0 + stdout "Welcome"
 #[test]
 fn password_flag_success_exits_zero() {
-    Command::cargo_bin("sshpass-rs")
+    Command::cargo_bin("sshpassx")
         .expect("binary exists")
         .args(["-p", "testpass", &fake_ssh_bin(), "--mode", "success"])
         .assert()
@@ -30,7 +30,7 @@ fn password_flag_success_exits_zero() {
 // GIVEN -p wrongpass, WHEN fake_ssh --mode wrong-password, THEN exit 5
 #[test]
 fn wrong_password_exits_five() {
-    Command::cargo_bin("sshpass-rs")
+    Command::cargo_bin("sshpassx")
         .expect("binary exists")
         .args([
             "-p",
@@ -49,7 +49,7 @@ fn file_flag_success_exits_zero() {
     let mut passfile = tempfile::NamedTempFile::new().expect("temp file");
     write!(passfile, "testpass\n").expect("write password");
 
-    Command::cargo_bin("sshpass-rs")
+    Command::cargo_bin("sshpassx")
         .expect("binary exists")
         .args([
             "-f",
@@ -66,7 +66,7 @@ fn file_flag_success_exits_zero() {
 // GIVEN -e + SSHPASS=testpass, WHEN fake_ssh --mode success, THEN exit 0 + stdout "Welcome"
 #[test]
 fn env_flag_success_exits_zero() {
-    Command::cargo_bin("sshpass-rs")
+    Command::cargo_bin("sshpassx")
         .expect("binary exists")
         .env("SSHPASS", "testpass")
         .args(["-e", &fake_ssh_bin(), "--mode", "success"])
@@ -78,7 +78,7 @@ fn env_flag_success_exits_zero() {
 // GIVEN -p x -e (conflicting), WHEN any command, THEN exit 2 + "mutually exclusive"
 #[test]
 fn conflicting_sources_exits_two() {
-    Command::cargo_bin("sshpass-rs")
+    Command::cargo_bin("sshpassx")
         .expect("binary exists")
         .args(["-p", "x", "-e", &fake_ssh_bin(), "--mode", "success"])
         .assert()
@@ -89,7 +89,7 @@ fn conflicting_sources_exits_two() {
 // GIVEN -p pass, WHEN no command provided, THEN exit 1 + "missing wrapped command"
 #[test]
 fn missing_command_exits_one() {
-    Command::cargo_bin("sshpass-rs")
+    Command::cargo_bin("sshpassx")
         .expect("binary exists")
         .args(["-p", "pass"])
         .assert()
@@ -100,7 +100,7 @@ fn missing_command_exits_one() {
 // GIVEN -p pass, WHEN fake_ssh --mode host-key-unknown, THEN exit 6
 #[test]
 fn host_key_unknown_exits_six() {
-    Command::cargo_bin("sshpass-rs")
+    Command::cargo_bin("sshpassx")
         .expect("binary exists")
         .args(["-p", "pass", &fake_ssh_bin(), "--mode", "host-key-unknown"])
         .assert()
@@ -110,7 +110,7 @@ fn host_key_unknown_exits_six() {
 // GIVEN -p pass, WHEN fake_ssh --mode host-key-changed, THEN exit 7
 #[test]
 fn host_key_changed_exits_seven() {
-    Command::cargo_bin("sshpass-rs")
+    Command::cargo_bin("sshpassx")
         .expect("binary exists")
         .args(["-p", "pass", &fake_ssh_bin(), "--mode", "host-key-changed"])
         .assert()
@@ -120,7 +120,7 @@ fn host_key_changed_exits_seven() {
 // GIVEN -P "custom:" -p testpass, WHEN fake_ssh --mode custom-prompt, THEN exit 0
 #[test]
 fn custom_prompt_exits_zero() {
-    Command::cargo_bin("sshpass-rs")
+    Command::cargo_bin("sshpassx")
         .expect("binary exists")
         .args([
             "-P",
@@ -140,7 +140,7 @@ fn custom_prompt_exits_zero() {
 // GIVEN -v -p testpass, WHEN fake_ssh --mode success, THEN stderr contains "SSHPASS"
 #[test]
 fn verbose_flag_prints_sshpass_to_stderr() {
-    Command::cargo_bin("sshpass-rs")
+    Command::cargo_bin("sshpassx")
         .expect("binary exists")
         .args(["-v", "-p", "testpass", &fake_ssh_bin(), "--mode", "success"])
         .assert()
@@ -151,7 +151,7 @@ fn verbose_flag_prints_sshpass_to_stderr() {
 // GIVEN -p testpass, WHEN fake_ssh --mode split-prompt, THEN exit 0
 #[test]
 fn split_prompt_exits_zero() {
-    Command::cargo_bin("sshpass-rs")
+    Command::cargo_bin("sshpassx")
         .expect("binary exists")
         .args(["-p", "testpass", &fake_ssh_bin(), "--mode", "split-prompt"])
         .assert()
@@ -163,10 +163,10 @@ fn split_prompt_exits_zero() {
 fn keychain_store_exits_zero() {
     let (_dir, keychain_file) = temp_keychain_env();
 
-    Command::cargo_bin("sshpass-rs")
+    Command::cargo_bin("sshpassx")
         .expect("binary exists")
-        .env("SSHPASS_RS_TEST_KEYCHAIN_FILE", &keychain_file)
-        .env("SSHPASS_RS_TEST_PASSWORD", "stored_pass")
+        .env("SSHPASSX_TEST_KEYCHAIN_FILE", &keychain_file)
+        .env("SSHPASSX_TEST_PASSWORD", "stored_pass")
         .args(["--store", "user@host"])
         .assert()
         .success()
@@ -178,17 +178,17 @@ fn keychain_store_exits_zero() {
 fn keychain_list_shows_stored_key() {
     let (_dir, keychain_file) = temp_keychain_env();
 
-    Command::cargo_bin("sshpass-rs")
+    Command::cargo_bin("sshpassx")
         .expect("binary exists")
-        .env("SSHPASS_RS_TEST_KEYCHAIN_FILE", &keychain_file)
-        .env("SSHPASS_RS_TEST_PASSWORD", "stored_pass")
+        .env("SSHPASSX_TEST_KEYCHAIN_FILE", &keychain_file)
+        .env("SSHPASSX_TEST_PASSWORD", "stored_pass")
         .args(["--store", "user@host"])
         .assert()
         .success();
 
-    Command::cargo_bin("sshpass-rs")
+    Command::cargo_bin("sshpassx")
         .expect("binary exists")
-        .env("SSHPASS_RS_TEST_KEYCHAIN_FILE", &keychain_file)
+        .env("SSHPASSX_TEST_KEYCHAIN_FILE", &keychain_file)
         .args(["--list"])
         .assert()
         .success()
@@ -200,17 +200,17 @@ fn keychain_list_shows_stored_key() {
 fn keychain_delete_exits_zero() {
     let (_dir, keychain_file) = temp_keychain_env();
 
-    Command::cargo_bin("sshpass-rs")
+    Command::cargo_bin("sshpassx")
         .expect("binary exists")
-        .env("SSHPASS_RS_TEST_KEYCHAIN_FILE", &keychain_file)
-        .env("SSHPASS_RS_TEST_PASSWORD", "stored_pass")
+        .env("SSHPASSX_TEST_KEYCHAIN_FILE", &keychain_file)
+        .env("SSHPASSX_TEST_PASSWORD", "stored_pass")
         .args(["--store", "user@host"])
         .assert()
         .success();
 
-    Command::cargo_bin("sshpass-rs")
+    Command::cargo_bin("sshpassx")
         .expect("binary exists")
-        .env("SSHPASS_RS_TEST_KEYCHAIN_FILE", &keychain_file)
+        .env("SSHPASSX_TEST_KEYCHAIN_FILE", &keychain_file)
         .args(["--delete", "user@host"])
         .assert()
         .success()
@@ -220,7 +220,7 @@ fn keychain_delete_exits_zero() {
 // GIVEN -p testpass, WHEN fake_ssh --mode exit-code --exit 42, THEN exit 42
 #[test]
 fn child_exit_code_passthrough() {
-    Command::cargo_bin("sshpass-rs")
+    Command::cargo_bin("sshpassx")
         .expect("binary exists")
         .args([
             "-p",
@@ -238,7 +238,7 @@ fn child_exit_code_passthrough() {
 // GIVEN -p pass, WHEN fake_ssh --mode parse-error (no prompt match + non-zero exit), THEN exit 4
 #[test]
 fn parse_error_exits_four() {
-    Command::cargo_bin("sshpass-rs")
+    Command::cargo_bin("sshpassx")
         .expect("binary exists")
         .args(["-p", "pass", &fake_ssh_bin(), "--mode", "parse-error"])
         .assert()
@@ -248,7 +248,7 @@ fn parse_error_exits_four() {
 // GIVEN stdin password via pipe (no flag), WHEN fake_ssh --mode success, THEN exit 0
 #[test]
 fn stdin_mode_success() {
-    Command::cargo_bin("sshpass-rs")
+    Command::cargo_bin("sshpassx")
         .expect("binary exists")
         .write_stdin("testpass\n")
         .args([&fake_ssh_bin(), "--mode", "success"])
@@ -262,9 +262,9 @@ fn stdin_mode_success() {
 fn keychain_list_empty_prints_empty() {
     let (_dir, keychain_file) = temp_keychain_env();
 
-    Command::cargo_bin("sshpass-rs")
+    Command::cargo_bin("sshpassx")
         .expect("binary exists")
-        .env("SSHPASS_RS_TEST_KEYCHAIN_FILE", &keychain_file)
+        .env("SSHPASSX_TEST_KEYCHAIN_FILE", &keychain_file)
         .args(["--list"])
         .assert()
         .success()
@@ -276,9 +276,9 @@ fn keychain_list_empty_prints_empty() {
 fn keychain_delete_nonexistent_fails() {
     let (_dir, keychain_file) = temp_keychain_env();
 
-    Command::cargo_bin("sshpass-rs")
+    Command::cargo_bin("sshpassx")
         .expect("binary exists")
-        .env("SSHPASS_RS_TEST_KEYCHAIN_FILE", &keychain_file)
+        .env("SSHPASSX_TEST_KEYCHAIN_FILE", &keychain_file)
         .args(["--delete", "nonexistent@host"])
         .assert()
         .code(3)
@@ -288,7 +288,7 @@ fn keychain_delete_nonexistent_fails() {
 // GIVEN -f /nonexistent/path, WHEN any command, THEN exit 3 + "password source error"
 #[test]
 fn file_flag_nonexistent_file_exits_three() {
-    Command::cargo_bin("sshpass-rs")
+    Command::cargo_bin("sshpassx")
         .expect("binary exists")
         .args([
             "-f",
@@ -305,7 +305,7 @@ fn file_flag_nonexistent_file_exits_three() {
 // GIVEN -e without SSHPASS env var, WHEN any command, THEN exit 3 + stderr mentions "SSHPASS"
 #[test]
 fn env_flag_without_sshpass_exits_three() {
-    Command::cargo_bin("sshpass-rs")
+    Command::cargo_bin("sshpassx")
         .expect("binary exists")
         .env_remove("SSHPASS")
         .args(["-e", &fake_ssh_bin(), "--mode", "success"])
@@ -317,7 +317,7 @@ fn env_flag_without_sshpass_exits_three() {
 // GIVEN -p testpass, WHEN fake_ssh --mode no-prompt (exits 0 immediately), THEN exit 0
 #[test]
 fn no_prompt_child_exits_zero_passthrough() {
-    Command::cargo_bin("sshpass-rs")
+    Command::cargo_bin("sshpassx")
         .expect("binary exists")
         .args(["-p", "testpass", &fake_ssh_bin(), "--mode", "no-prompt"])
         .assert()
@@ -328,7 +328,7 @@ fn no_prompt_child_exits_zero_passthrough() {
 #[test]
 fn fd_flag_success_exits_zero() {
     let fake_ssh = fake_ssh_bin();
-    let sshpass = assert_cmd::cargo::cargo_bin("sshpass-rs")
+    let sshpass = assert_cmd::cargo::cargo_bin("sshpassx")
         .to_str()
         .unwrap()
         .to_string();
@@ -348,17 +348,17 @@ fn fd_flag_success_exits_zero() {
 fn keychain_store_then_use_with_key_flag() {
     let (_dir, keychain_file) = temp_keychain_env();
 
-    Command::cargo_bin("sshpass-rs")
+    Command::cargo_bin("sshpassx")
         .expect("binary exists")
-        .env("SSHPASS_RS_TEST_KEYCHAIN_FILE", &keychain_file)
-        .env("SSHPASS_RS_TEST_PASSWORD", "kc_pass")
+        .env("SSHPASSX_TEST_KEYCHAIN_FILE", &keychain_file)
+        .env("SSHPASSX_TEST_PASSWORD", "kc_pass")
         .args(["--store", "user@host"])
         .assert()
         .success();
 
-    Command::cargo_bin("sshpass-rs")
+    Command::cargo_bin("sshpassx")
         .expect("binary exists")
-        .env("SSHPASS_RS_TEST_KEYCHAIN_FILE", &keychain_file)
+        .env("SSHPASSX_TEST_KEYCHAIN_FILE", &keychain_file)
         .args(["--key", "user@host", &fake_ssh_bin(), "--mode", "success"])
         .assert()
         .success()
@@ -368,7 +368,7 @@ fn keychain_store_then_use_with_key_flag() {
 // GIVEN -v -p testpass, WHEN fake_ssh --mode success, THEN stderr has "detected" + "sending"
 #[test]
 fn verbose_shows_detected_and_sending() {
-    Command::cargo_bin("sshpass-rs")
+    Command::cargo_bin("sshpassx")
         .expect("binary exists")
         .args(["-v", "-p", "testpass", &fake_ssh_bin(), "--mode", "success"])
         .assert()
@@ -380,13 +380,13 @@ fn verbose_shows_detected_and_sending() {
 // GIVEN -v -p testpass, WHEN fake_ssh --mode success, THEN stderr contains password source diagnostic
 #[test]
 fn test_verbose_password_source_p_flag() {
-    Command::cargo_bin("sshpass-rs")
+    Command::cargo_bin("sshpassx")
         .expect("binary exists")
         .args(["-v", "-p", "testpass", &fake_ssh_bin(), "--mode", "success"])
         .assert()
         .success()
         .stderr(predicate::str::contains(
-            "SSHPASS_RS: using password from -p argument",
+            "SSHPASSX: using password from -p argument",
         ));
 }
 
@@ -395,14 +395,14 @@ fn test_verbose_password_source_p_flag() {
 fn test_verbose_backend_selection_default() {
     let (_dir, keychain_file) = temp_keychain_env();
 
-    Command::cargo_bin("sshpass-rs")
+    Command::cargo_bin("sshpassx")
         .expect("binary exists")
-        .env("SSHPASS_RS_TEST_KEYCHAIN_FILE", keychain_file)
+        .env("SSHPASSX_TEST_KEYCHAIN_FILE", keychain_file)
         .args(["-v", "--list"])
         .assert()
         .success()
         .stderr(predicate::str::contains(
-            "SSHPASS_RS: checking SSHPASS_RS_BACKEND",
+            "SSHPASSX: checking SSHPASSX_BACKEND",
         ));
 }
 
@@ -411,19 +411,19 @@ fn test_verbose_backend_selection_default() {
 fn test_verbose_standalone_list() {
     let (_dir, keychain_file) = temp_keychain_env();
 
-    Command::cargo_bin("sshpass-rs")
+    Command::cargo_bin("sshpassx")
         .expect("binary exists")
-        .env("SSHPASS_RS_TEST_KEYCHAIN_FILE", keychain_file)
+        .env("SSHPASSX_TEST_KEYCHAIN_FILE", keychain_file)
         .args(["-v", "--list"])
         .assert()
         .success()
-        .stderr(predicate::str::contains("SSHPASS_RS: listing stored keys"));
+        .stderr(predicate::str::contains("SSHPASSX: listing stored keys"));
 }
 
 // GIVEN -v -p SUPERSECRET_XYZ_123, WHEN fake_ssh --mode success, THEN secret NOT in stderr
 #[test]
 fn test_verbose_no_secret_leak() {
-    Command::cargo_bin("sshpass-rs")
+    Command::cargo_bin("sshpassx")
         .expect("binary exists")
         .args([
             "-v",

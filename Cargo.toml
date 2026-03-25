@@ -1,10 +1,19 @@
 [package]
-name = "sshpass-rs"
-version = "0.1.0"
+name = "sshpassx"
+version = "0.2.0"
 edition = "2021"
+authors = ["cydia2001 <cydia2001@duck.com>"]
+description = "A secure, drop-in Rust replacement for sshpass with macOS Keychain and 1Password integration"
+license = "MIT"
+repository = "https://github.com/anyin233/sshpass-rs"
+homepage = "https://github.com/anyin233/sshpass-rs"
+readme = "README.md"
+keywords = ["ssh", "sshpass", "password", "keychain", "1password"]
+categories = ["command-line-utilities", "authentication"]
+exclude = ["tests/", ".sisyphus/", "src/bin/fake_ssh.rs"]
 
 [[bin]]
-name = "sshpass-rs"
+name = "sshpassx"
 path = "src/main.rs"
 
 [[bin]]

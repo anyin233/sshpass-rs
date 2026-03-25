@@ -152,7 +152,7 @@ impl OnePasswordBackend {
 
     fn run_op(&self, args: &[&str]) -> Result<String, SshpassError> {
         if self.verbose {
-            eprintln!("SSHPASS_RS: running: op {}", args.join(" "));
+            eprintln!("SSHPASSX: running: op {}", args.join(" "));
         }
 
         let output = Command::new(&self.op_path)
@@ -166,7 +166,7 @@ impl OnePasswordBackend {
             })?;
 
         if self.verbose {
-            eprintln!("SSHPASS_RS: op exited with status {}", output.status);
+            eprintln!("SSHPASSX: op exited with status {}", output.status);
         }
 
         if !output.status.success() {
@@ -181,10 +181,7 @@ impl OnePasswordBackend {
 
     fn run_op_with_stdin(&self, args: &[&str], stdin_data: &str) -> Result<String, SshpassError> {
         if self.verbose {
-            eprintln!(
-                "SSHPASS_RS: running: op {} (with stdin data)",
-                args.join(" ")
-            );
+            eprintln!("SSHPASSX: running: op {} (with stdin data)", args.join(" "));
         }
 
         let mut child = Command::new(&self.op_path)
@@ -212,7 +209,7 @@ impl OnePasswordBackend {
             .map_err(|err| SshpassError::KeychainAccess(format!("failed to wait for op: {err}")))?;
 
         if self.verbose {
-            eprintln!("SSHPASS_RS: op exited with status {}", output.status);
+            eprintln!("SSHPASSX: op exited with status {}", output.status);
         }
 
         if !output.status.success() {
@@ -229,13 +226,13 @@ impl OnePasswordBackend {
 impl KeychainBackend for OnePasswordBackend {
     fn store(&self, key: &str, password: &SecretString) -> Result<(), SshpassError> {
         if self.verbose {
-            eprintln!("SSHPASS_RS: storing key '{}' in 1Password", key);
+            eprintln!("SSHPASSX: storing key '{}' in 1Password", key);
         }
 
         let payload = serde_json::json!({
             "title": key,
             "category": "PASSWORD",
-            "tags": ["sshpass-rs"],
+            "tags": ["sshpassx"],
             "fields": [{
                 "id": "password",
                 "type": "CONCEALED",
@@ -256,23 +253,30 @@ impl KeychainBackend for OnePasswordBackend {
 
     fn get(&self, key: &str) -> Result<SecretString, SshpassError> {
         if self.verbose {
-            eprintln!("SSHPASS_RS: looking up key '{}' in 1Password", key);
+            eprintln!("SSHPASSX: looking up key '{}' in 1Password", key);
         }
 
-        let mut list_args = vec!["item", "list", "--tags", "sshpass-rs", "--format", "json"];
+        let mut list_args = vec![
+            "item",
+            "list",
+            "--tags",
+            "sshpassx,sshpass-rs",
+            "--format",
+            "json",
+        ];
         self.append_vault_args(&mut list_args);
         let list_output = self.run_op(&list_args)?;
         let items = parse_item_list(&list_output)?;
         let item_id = match items.iter().find(|item| item.title == key) {
             Some(item) => {
                 if self.verbose {
-                    eprintln!("SSHPASS_RS: found item id '{}' for key '{}'", item.id, key);
+                    eprintln!("SSHPASSX: found item id '{}' for key '{}'", item.id, key);
                 }
                 item.id.as_str()
             }
             None => {
                 if self.verbose {
-                    eprintln!("SSHPASS_RS: key '{}' not found in 1Password", key);
+                    eprintln!("SSHPASSX: key '{}' not found in 1Password", key);
                 }
                 return Err(SshpassError::KeychainAccess(format!(
                     "key not found: {key}"
@@ -288,10 +292,17 @@ impl KeychainBackend for OnePasswordBackend {
 
     fn delete(&self, key: &str) -> Result<(), SshpassError> {
         if self.verbose {
-            eprintln!("SSHPASS_RS: deleting key '{}' from 1Password", key);
+            eprintln!("SSHPASSX: deleting key '{}' from 1Password", key);
         }
 
-        let mut list_args = vec!["item", "list", "--tags", "sshpass-rs", "--format", "json"];
+        let mut list_args = vec![
+            "item",
+            "list",
+            "--tags",
+            "sshpassx,sshpass-rs",
+            "--format",
+            "json",
+        ];
         self.append_vault_args(&mut list_args);
         let list_output = self.run_op(&list_args)?;
         let items = parse_item_list(&list_output)?;
@@ -309,15 +320,22 @@ impl KeychainBackend for OnePasswordBackend {
 
     fn list(&self) -> Result<Vec<String>, SshpassError> {
         if self.verbose {
-            eprintln!("SSHPASS_RS: listing keys from 1Password");
+            eprintln!("SSHPASSX: listing keys from 1Password");
         }
 
-        let mut args = vec!["item", "list", "--tags", "sshpass-rs", "--format", "json"];
+        let mut args = vec![
+            "item",
+            "list",
+            "--tags",
+            "sshpassx,sshpass-rs",
+            "--format",
+            "json",
+        ];
         self.append_vault_args(&mut args);
         let output = self.run_op(&args)?;
         let titles = parse_item_titles(&output)?;
         if self.verbose {
-            eprintln!("SSHPASS_RS: found {} keys", titles.len());
+            eprintln!("SSHPASSX: found {} keys", titles.len());
         }
         Ok(titles)
     }

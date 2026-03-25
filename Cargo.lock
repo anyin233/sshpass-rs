@@ -715,7 +715,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "sshpass-rs"
+name = "sshpassx"
 version = "0.1.0"
 dependencies = [
  "anyhow",

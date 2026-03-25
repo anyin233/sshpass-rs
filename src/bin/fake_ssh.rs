@@ -3,7 +3,7 @@ use std::io::{self, BufRead, Write};
 use std::thread;
 use std::time::Duration;
 
-/// Fake SSH binary for testing sshpass-rs behavior
+/// Fake SSH binary for testing sshpassx behavior
 #[derive(Parser, Debug)]
 #[command(name = "fake_ssh")]
 struct Args {

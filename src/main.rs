@@ -19,7 +19,7 @@ fn main() {
     std::process::exit(run());
 }
 
-/// Runs the complete sshpass-rs CLI orchestration and returns the process exit code.
+/// Runs the complete sshpassx CLI orchestration and returns the process exit code.
 ///
 /// Params:
 /// - None.
@@ -98,23 +98,29 @@ fn build_keychain_manager(verbose: bool) -> Result<KeychainManager, SshpassError
 ///
 /// Returns:
 /// - A boxed keychain backend for standalone operations or password resolution.
+fn env_with_fallback(new_name: &str, old_name: &str) -> Option<String> {
+    std::env::var(new_name)
+        .ok()
+        .or_else(|| std::env::var(old_name).ok())
+}
+
 fn build_keychain_backend(verbose: bool) -> Result<Box<dyn KeychainBackend>, SshpassError> {
     if verbose {
-        eprintln!("SSHPASS_RS: checking SSHPASS_RS_BACKEND environment variable");
+        eprintln!("SSHPASSX: checking SSHPASSX_BACKEND environment variable");
     }
 
-    if let Ok(backend) = std::env::var("SSHPASS_RS_BACKEND") {
+    if let Some(backend) = env_with_fallback("SSHPASSX_BACKEND", "SSHPASS_RS_BACKEND") {
         if backend == "op" || backend == "1password" {
-            let vault = std::env::var("SSHPASS_RS_VAULT").ok();
+            let vault = env_with_fallback("SSHPASSX_VAULT", "SSHPASS_RS_VAULT");
             if verbose {
                 eprintln!(
-                    "SSHPASS_RS: selected 1Password backend (vault: {})",
+                    "SSHPASSX: selected 1Password backend (vault: {})",
                     vault.as_deref().unwrap_or("default")
                 );
             }
             #[cfg(not(target_os = "macos"))]
             eprintln!(
-                "SSHPASS_RS: non-macOS detected. Ensure the 1Password CLI (op) is installed: \
+                "SSHPASSX: non-macOS detected. Ensure the 1Password CLI (op) is installed: \
                  https://1password.com/downloads/command-line/"
             );
             return Ok(Box::new(OnePasswordBackend::new(vault, verbose)));
@@ -122,26 +128,29 @@ fn build_keychain_backend(verbose: bool) -> Result<Box<dyn KeychainBackend>, Ssh
 
         if verbose {
             eprintln!(
-                "SSHPASS_RS: unknown backend '{}', falling back to OS keychain",
+                "SSHPASSX: unknown backend '{}', falling back to OS keychain",
                 backend
             );
         }
     }
 
-    match std::env::var("SSHPASS_RS_TEST_KEYCHAIN_FILE") {
-        Ok(path) => Ok(Box::new(FileKeychainBackend::new(path))),
-        Err(_) => {
+    match env_with_fallback(
+        "SSHPASSX_TEST_KEYCHAIN_FILE",
+        "SSHPASS_RS_TEST_KEYCHAIN_FILE",
+    ) {
+        Some(path) => Ok(Box::new(FileKeychainBackend::new(path))),
+        None => {
             #[cfg(not(target_os = "macos"))]
             return Err(SshpassError::KeychainAccess(
                 "macOS Keychain is not available on this platform. \
-                 Use SSHPASS_RS_BACKEND=op with 1Password CLI instead."
+                 Use SSHPASSX_BACKEND=op with 1Password CLI instead."
                     .to_string(),
             ));
 
             #[cfg(target_os = "macos")]
             {
                 if verbose {
-                    eprintln!("SSHPASS_RS: selected OS keychain backend");
+                    eprintln!("SSHPASSX: selected OS keychain backend");
                 }
                 Ok(Box::new(RealKeychainBackend::new(verbose)))
             }
@@ -160,17 +169,17 @@ fn build_keychain_backend(verbose: bool) -> Result<Box<dyn KeychainBackend>, Ssh
 fn handle_standalone(cli: &Cli, manager: &KeychainManager, verbose: bool) -> Option<i32> {
     let result = if let Some(key) = &cli.store {
         if verbose {
-            eprintln!("SSHPASS_RS: performing store for key '{}'", key);
+            eprintln!("SSHPASSX: performing store for key '{}'", key);
         }
         Some(keychain::handle_store(manager, key))
     } else if let Some(key) = &cli.delete {
         if verbose {
-            eprintln!("SSHPASS_RS: performing delete for key '{}'", key);
+            eprintln!("SSHPASSX: performing delete for key '{}'", key);
         }
         Some(keychain::handle_delete(manager, key))
     } else if cli.list {
         if verbose {
-            eprintln!("SSHPASS_RS: listing stored keys");
+            eprintln!("SSHPASSX: listing stored keys");
         }
         Some(keychain::handle_list(manager))
     } else {
@@ -193,27 +202,27 @@ fn handle_standalone(cli: &Cli, manager: &KeychainManager, verbose: bool) -> Opt
 fn resolve_password(cli: &Cli, verbose: bool) -> Result<secrecy::SecretString, SshpassError> {
     let resolver = if let Some(password) = &cli.password {
         if verbose {
-            eprintln!("SSHPASS_RS: using password from -p argument");
+            eprintln!("SSHPASSX: using password from -p argument");
         }
         PasswordResolver::Argument(password.clone())
     } else if let Some(filename) = &cli.filename {
         if verbose {
-            eprintln!("SSHPASS_RS: using password from file '{}'", filename);
+            eprintln!("SSHPASSX: using password from file '{}'", filename);
         }
         PasswordResolver::File(filename.into())
     } else if let Some(fd) = cli.fd {
         if verbose {
-            eprintln!("SSHPASS_RS: using password from file descriptor {}", fd);
+            eprintln!("SSHPASSX: using password from file descriptor {}", fd);
         }
         PasswordResolver::FileDescriptor(fd)
     } else if cli.use_env {
         if verbose {
-            eprintln!("SSHPASS_RS: using password from SSHPASS environment variable");
+            eprintln!("SSHPASSX: using password from SSHPASS environment variable");
         }
         PasswordResolver::Environment
     } else if let Some(key) = &cli.key {
         if verbose {
-            eprintln!("SSHPASS_RS: using keychain with key '{}'", key);
+            eprintln!("SSHPASSX: using keychain with key '{}'", key);
         }
         PasswordResolver::Keychain(key.clone())
     } else if cli.use_keychain {
@@ -223,12 +232,12 @@ fn resolve_password(cli: &Cli, verbose: bool) -> Result<secrecy::SecretString, S
             )
         })?;
         if verbose {
-            eprintln!("SSHPASS_RS: using keychain with key '{}'", key);
+            eprintln!("SSHPASSX: using keychain with key '{}'", key);
         }
         PasswordResolver::Keychain(key)
     } else {
         if verbose {
-            eprintln!("SSHPASS_RS: reading password from stdin");
+            eprintln!("SSHPASSX: reading password from stdin");
         }
         PasswordResolver::Stdin
     };
@@ -309,9 +318,9 @@ mod tests {
     fn list_standalone_prints_empty_for_fresh_store() {
         let (_dir, keychain_file) = temp_keychain_env();
 
-        Command::cargo_bin("sshpass-rs")
-            .expect("expected sshpass-rs binary")
-            .env("SSHPASS_RS_TEST_KEYCHAIN_FILE", keychain_file)
+        Command::cargo_bin("sshpassx")
+            .expect("expected sshpassx binary")
+            .env("SSHPASSX_TEST_KEYCHAIN_FILE", keychain_file)
             .arg("--list")
             .assert()
             .success()
@@ -322,22 +331,22 @@ mod tests {
     fn verbose_list_standalone_logs_backend_selection_and_operation() {
         let (_dir, keychain_file) = temp_keychain_env();
 
-        Command::cargo_bin("sshpass-rs")
-            .expect("expected sshpass-rs binary")
-            .env("SSHPASS_RS_TEST_KEYCHAIN_FILE", keychain_file)
+        Command::cargo_bin("sshpassx")
+            .expect("expected sshpassx binary")
+            .env("SSHPASSX_TEST_KEYCHAIN_FILE", keychain_file)
             .args(["-v", "--list"])
             .assert()
             .success()
             .stderr(predicate::str::contains(
-                "SSHPASS_RS: checking SSHPASS_RS_BACKEND environment variable",
+                "SSHPASSX: checking SSHPASSX_BACKEND environment variable",
             ))
-            .stderr(predicate::str::contains("SSHPASS_RS: listing stored keys"));
+            .stderr(predicate::str::contains("SSHPASSX: listing stored keys"));
     }
 
     #[test]
     fn conflicting_password_sources_exit_with_code_two() {
-        Command::cargo_bin("sshpass-rs")
-            .expect("expected sshpass-rs binary")
+        Command::cargo_bin("sshpassx")
+            .expect("expected sshpassx binary")
             .args([
                 "-p",
                 "x",
@@ -353,8 +362,8 @@ mod tests {
 
     #[test]
     fn successful_fake_ssh_flow_exits_zero() {
-        Command::cargo_bin("sshpass-rs")
-            .expect("expected sshpass-rs binary")
+        Command::cargo_bin("sshpassx")
+            .expect("expected sshpassx binary")
             .args([
                 "-p",
                 "testpass",
@@ -369,8 +378,8 @@ mod tests {
 
     #[test]
     fn wrong_password_flow_exits_five() {
-        Command::cargo_bin("sshpass-rs")
-            .expect("expected sshpass-rs binary")
+        Command::cargo_bin("sshpassx")
+            .expect("expected sshpassx binary")
             .args([
                 "-p",
                 "wrongpass",

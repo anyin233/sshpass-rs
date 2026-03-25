@@ -6,7 +6,8 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-const SERVICE_NAME: &str = "sshpass-rs";
+const SERVICE_NAME: &str = "sshpassx";
+const LEGACY_SERVICE_NAME: &str = "sshpass-rs";
 
 pub trait KeychainBackend {
     fn store(&self, key: &str, password: &SecretString) -> Result<(), SshpassError>;
@@ -20,7 +21,8 @@ pub struct RealKeychainBackend {
 }
 
 impl RealKeychainBackend {
-    const INDEX_KEY: &'static str = "__sshpass_rs_index__";
+    const INDEX_KEY: &'static str = "__sshpassx_index__";
+    const LEGACY_INDEX_KEY: &'static str = "__sshpass_rs_index__";
 
     pub fn new(verbose: bool) -> Self {
         Self { verbose }
@@ -31,19 +33,45 @@ impl RealKeychainBackend {
             .map_err(|e| SshpassError::KeychainAccess(format!("failed to create entry: {}", e)))
     }
 
+    fn legacy_entry(key: &str) -> Result<keyring::Entry, SshpassError> {
+        keyring::Entry::new(LEGACY_SERVICE_NAME, key)
+            .map_err(|e| SshpassError::KeychainAccess(format!("failed to create entry: {}", e)))
+    }
+
     fn read_index(&self) -> Result<Vec<String>, SshpassError> {
+        let mut keys = Vec::new();
+
         match Self::entry(Self::INDEX_KEY)?.get_password() {
-            Ok(data) => Ok(data
-                .lines()
-                .filter(|l| !l.is_empty())
-                .map(String::from)
-                .collect()),
-            Err(keyring::Error::NoEntry) => Ok(Vec::new()),
-            Err(e) => Err(SshpassError::KeychainAccess(format!(
-                "failed to read index: {}",
-                e
-            ))),
+            Ok(data) => {
+                keys.extend(data.lines().filter(|l| !l.is_empty()).map(String::from));
+            }
+            Err(keyring::Error::NoEntry) => {}
+            Err(e) => {
+                return Err(SshpassError::KeychainAccess(format!(
+                    "failed to read index: {}",
+                    e
+                )));
+            }
         }
+
+        match Self::legacy_entry(Self::LEGACY_INDEX_KEY)?.get_password() {
+            Ok(data) => {
+                for key in data.lines().filter(|l| !l.is_empty()) {
+                    if !keys.contains(&key.to_string()) {
+                        keys.push(key.to_string());
+                    }
+                }
+            }
+            Err(keyring::Error::NoEntry) => {}
+            Err(e) => {
+                return Err(SshpassError::KeychainAccess(format!(
+                    "failed to read legacy index: {}",
+                    e
+                )));
+            }
+        }
+
+        Ok(keys)
     }
 
     fn write_index(&self, keys: &[String]) -> Result<(), SshpassError> {
@@ -57,7 +85,7 @@ impl RealKeychainBackend {
 impl KeychainBackend for RealKeychainBackend {
     fn store(&self, key: &str, password: &SecretString) -> Result<(), SshpassError> {
         if self.verbose {
-            eprintln!("SSHPASS_RS: storing key '{}' in OS keychain", key);
+            eprintln!("SSHPASSX: storing key '{}' in OS keychain", key);
         }
 
         Self::entry(key)?
@@ -74,10 +102,24 @@ impl KeychainBackend for RealKeychainBackend {
 
     fn get(&self, key: &str) -> Result<SecretString, SshpassError> {
         if self.verbose {
-            eprintln!("SSHPASS_RS: querying OS keychain for key '{}'", key);
+            eprintln!("SSHPASSX: querying OS keychain for key '{}'", key);
         }
 
         match Self::entry(key)?.get_password() {
+            Ok(pw) => return Ok(SecretString::from(pw)),
+            Err(keyring::Error::NoEntry) => {}
+            Err(e) => {
+                return Err(SshpassError::KeychainAccess(format!(
+                    "failed to get: {}",
+                    e
+                )));
+            }
+        }
+
+        if self.verbose {
+            eprintln!("SSHPASSX: trying legacy service for key '{}'", key);
+        }
+        match Self::legacy_entry(key)?.get_password() {
             Ok(pw) => Ok(SecretString::from(pw)),
             Err(keyring::Error::NoEntry) => Err(SshpassError::KeychainAccess(format!(
                 "key not found: {}",
@@ -92,23 +134,38 @@ impl KeychainBackend for RealKeychainBackend {
 
     fn delete(&self, key: &str) -> Result<(), SshpassError> {
         if self.verbose {
-            eprintln!("SSHPASS_RS: deleting key '{}' from OS keychain", key);
+            eprintln!("SSHPASSX: deleting key '{}' from OS keychain", key);
         }
 
+        let mut found = false;
+
         match Self::entry(key)?.delete_credential() {
-            Ok(()) => {}
-            Err(keyring::Error::NoEntry) => {
-                return Err(SshpassError::KeychainAccess(format!(
-                    "key not found: {}",
-                    key
-                )));
-            }
+            Ok(()) => found = true,
+            Err(keyring::Error::NoEntry) => {}
             Err(e) => {
                 return Err(SshpassError::KeychainAccess(format!(
                     "failed to delete: {}",
                     e
                 )));
             }
+        }
+
+        match Self::legacy_entry(key)?.delete_credential() {
+            Ok(()) => found = true,
+            Err(keyring::Error::NoEntry) => {}
+            Err(e) => {
+                return Err(SshpassError::KeychainAccess(format!(
+                    "failed to delete: {}",
+                    e
+                )));
+            }
+        }
+
+        if !found {
+            return Err(SshpassError::KeychainAccess(format!(
+                "key not found: {}",
+                key
+            )));
         }
 
         let mut index = self.read_index()?;
@@ -118,7 +175,7 @@ impl KeychainBackend for RealKeychainBackend {
 
     fn list(&self) -> Result<Vec<String>, SshpassError> {
         if self.verbose {
-            eprintln!("SSHPASS_RS: listing keys from OS keychain");
+            eprintln!("SSHPASSX: listing keys from OS keychain");
         }
 
         self.read_index()
@@ -346,7 +403,9 @@ impl KeychainBackend for FileKeychainBackend {
 }
 
 pub fn handle_store(manager: &KeychainManager, key: &str) -> Result<(), SshpassError> {
-    let password = match std::env::var("SSHPASS_RS_TEST_PASSWORD") {
+    let password = match std::env::var("SSHPASSX_TEST_PASSWORD")
+        .or_else(|_| std::env::var("SSHPASS_RS_TEST_PASSWORD"))
+    {
         Ok(p) => p,
         Err(_) => {
             rpassword::prompt_password("Enter password to store: ").map_err(SshpassError::Io)?
@@ -387,7 +446,9 @@ impl KeychainManager {
 
     #[allow(dead_code)]
     pub fn from_env() -> Self {
-        match std::env::var("SSHPASS_RS_TEST_KEYCHAIN_FILE") {
+        match std::env::var("SSHPASSX_TEST_KEYCHAIN_FILE")
+            .or_else(|_| std::env::var("SSHPASS_RS_TEST_KEYCHAIN_FILE"))
+        {
             Ok(path) => Self::new(Box::new(FileKeychainBackend::new(path))),
             Err(_) => Self::new(Box::new(RealKeychainBackend::new(false))),
         }
@@ -529,7 +590,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let file_path = dir.path().join("env_keychain.json");
 
-        std::env::set_var("SSHPASS_RS_TEST_KEYCHAIN_FILE", file_path.to_str().unwrap());
+        std::env::set_var("SSHPASSX_TEST_KEYCHAIN_FILE", file_path.to_str().unwrap());
 
         let manager = KeychainManager::from_env();
         let password = SecretString::from("env_pass");
@@ -538,12 +599,12 @@ mod tests {
         let retrieved = manager.get("env_key").unwrap();
         assert_eq!(retrieved.expose_secret(), "env_pass");
 
-        std::env::remove_var("SSHPASS_RS_TEST_KEYCHAIN_FILE");
+        std::env::remove_var("SSHPASSX_TEST_KEYCHAIN_FILE");
     }
 
     #[test]
     fn test_store_handler() {
-        std::env::set_var("SSHPASS_RS_TEST_PASSWORD", "handler_pass");
+        std::env::set_var("SSHPASSX_TEST_PASSWORD", "handler_pass");
 
         let backend = InMemoryKeychainBackend::new();
         let manager = KeychainManager::new(Box::new(backend));
@@ -553,7 +614,7 @@ mod tests {
         let retrieved = manager.get("test_key").unwrap();
         assert_eq!(retrieved.expose_secret(), "handler_pass");
 
-        std::env::remove_var("SSHPASS_RS_TEST_PASSWORD");
+        std::env::remove_var("SSHPASSX_TEST_PASSWORD");
     }
 
     #[test]
