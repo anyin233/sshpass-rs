@@ -132,12 +132,20 @@ Standalone operations — no wrapped command needed.
 
 ### Key Auto-Detection
 
-With `-k` (no `--key`), the key is derived from the wrapped command:
+With `-k` (no `--key`), the key is derived from the wrapped command using a two-stage fallback:
 
-- `ssh user@host` → key = `user@host`
-- `ssh -l user host` → key = `user@host`
+1. **Direct parsing** — extracts `user@host` from SSH arguments:
+   - `ssh user@host` → key = `user@host`
+   - `ssh -l user host` → key = `user@host`
 
-If neither pattern matches, you're prompted interactively.
+2. **SSH config resolution** — if direct parsing fails, runs `ssh -G <destination>` to resolve aliases:
+   - `ssh myalias` → resolves `User` and `HostName` from `~/.ssh/config` → key = `resolved_user@resolved_host`
+   - `ssh -W %h:%p gw` → resolves `gw` alias → key = `resolved_user@resolved_host`
+   - Propagates `-F <config>` if present in the SSH arguments
+
+Use `--key <name>` to override auto-detection entirely.
+
+If both stages fail, you're prompted interactively.
 
 ## Examples
 
@@ -197,9 +205,7 @@ sshpassx --delete user@host
 
 ### SSH Config Integration
 
-Use sshpassx as a `ProxyCommand` in `~/.ssh/config` to automate password-based jump hosts.
-
-**Important:** When sshpassx cannot auto-derive `user@host` from the SSH arguments (e.g. with `-W`, aliases, or non-standard invocations), use `--key` to specify the keychain key explicitly.
+Use sshpassx as a `ProxyCommand` in `~/.ssh/config` to automate password-based jump hosts. Aliases are resolved automatically via `ssh -G`.
 
 ```sh
 # First, store the jump host password
@@ -216,21 +222,21 @@ Host gw
   PreferredAuthentications keyboard-interactive
   PubkeyAuthentication no
 
-# Internal hosts via the jump host
+# Internal hosts via the jump host — alias "gw" is auto-resolved
 Host internal-server1
   HostName 10.0.0.1
   User admin
-  ProxyCommand sshpassx -k --key user@gateway.example.com ssh -W %h:%p gw
+  ProxyCommand sshpassx -k ssh -W %h:%p gw
   GSSAPIAuthentication no
 
 Host internal-server2
   HostName 10.0.0.2
   User admin
-  ProxyCommand sshpassx -k --key user@gateway.example.com ssh -W %h:%p gw
+  ProxyCommand sshpassx -k ssh -W %h:%p gw
   GSSAPIAuthentication no
 ```
 
-> **Why `--key` is needed here:** The wrapped command `ssh -W %h:%p gw` uses a Host alias and `-W` flag, so sshpassx cannot auto-derive a `user@host` key. Without `--key`, you'll get: `password source error: unable to derive keychain key from wrapped SSH arguments`.
+> **How it works:** sshpassx runs `ssh -G gw` to resolve the alias, extracting `User` and `HostName` from your SSH config to construct the keychain key `user@gateway.example.com`. Use `--key <name>` to override if needed.
 
 ### Advanced
 
