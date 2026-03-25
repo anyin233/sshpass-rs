@@ -1,4 +1,6 @@
 use clap::Parser;
+use std::path::Path;
+use std::process::Command;
 
 #[derive(Debug, Clone, Parser, PartialEq, Eq)]
 #[command(disable_help_flag = true, disable_version_flag = true)]
@@ -317,6 +319,136 @@ EXAMPLES:
 ///
 /// Returns:
 /// - A derived `user@host` string for supported patterns, otherwise `None`.
+const SSH_FLAGS_WITH_VALUE: &[&str] = &[
+    "-B", "-b", "-c", "-D", "-E", "-e", "-F", "-I", "-i", "-J", "-L", "-l", "-m", "-O", "-o", "-p",
+    "-Q", "-R", "-S", "-W", "-w",
+];
+
+fn find_ssh_destination(args: &[String]) -> Option<String> {
+    let mut index = 1;
+
+    while index < args.len() {
+        let arg = &args[index];
+
+        if SSH_FLAGS_WITH_VALUE.contains(&arg.as_str()) {
+            index += 2;
+            continue;
+        }
+
+        if arg.starts_with('-') {
+            index += 1;
+            continue;
+        }
+
+        return Some(arg.clone());
+    }
+
+    None
+}
+
+fn extract_ssh_config_path(args: &[String]) -> Option<String> {
+    let mut index = 1;
+
+    while index < args.len() {
+        if args[index] == "-F" {
+            return args.get(index + 1).cloned();
+        }
+
+        index += 1;
+    }
+
+    None
+}
+
+fn parse_ssh_g_output(output: &str) -> Option<(String, String)> {
+    let mut user = None;
+    let mut hostname = None;
+
+    for line in output.lines() {
+        if let Some(value) = line.strip_prefix("user ") {
+            user = Some(value.to_string());
+        }
+
+        if let Some(value) = line.strip_prefix("hostname ") {
+            hostname = Some(value.to_string());
+        }
+
+        if let (Some(user), Some(hostname)) = (&user, &hostname) {
+            return Some((user.clone(), hostname.clone()));
+        }
+    }
+
+    None
+}
+
+/// Resolves an SSH alias into a `user@host` key by delegating to `ssh -G`.
+///
+/// Params:
+/// - args: Wrapped SSH command and trailing arguments.
+/// - verbose: Whether diagnostic logging should be emitted.
+///
+/// Returns:
+/// - A resolved `user@host` keychain key, otherwise `None`.
+pub fn resolve_via_ssh_config(args: &[String], verbose: bool) -> Option<String> {
+    let command_name = args
+        .first()
+        .and_then(|command| Path::new(command).file_name())
+        .and_then(|name| name.to_str())?;
+
+    if !command_name.ends_with("ssh") {
+        return None;
+    }
+
+    let destination = find_ssh_destination(args)?;
+
+    if verbose {
+        eprintln!("SSHPASSX: resolving SSH alias '{}' via ssh -G", destination);
+    }
+
+    let mut command = Command::new("ssh");
+    command.arg("-G");
+
+    if let Some(config_path) = extract_ssh_config_path(args) {
+        command.arg("-F");
+        command.arg(config_path);
+    }
+
+    let output = match command.arg(&destination).output() {
+        Ok(output) if output.status.success() => output,
+        _ => {
+            if verbose {
+                eprintln!("SSHPASSX: failed to resolve SSH alias '{}'", destination);
+            }
+            return None;
+        }
+    };
+
+    let stdout = match String::from_utf8(output.stdout) {
+        Ok(stdout) => stdout,
+        Err(_) => {
+            if verbose {
+                eprintln!("SSHPASSX: failed to resolve SSH alias '{}'", destination);
+            }
+            return None;
+        }
+    };
+
+    let key = parse_ssh_g_output(&stdout).map(|(user, hostname)| format!("{user}@{hostname}"));
+
+    if verbose {
+        if let Some(key) = &key {
+            eprintln!(
+                "SSHPASSX: resolved alias '{}' to keychain key '{}'",
+                destination, key
+            );
+        } else {
+            eprintln!("SSHPASSX: failed to resolve SSH alias '{}'", destination);
+        }
+    }
+
+    key
+}
+
 pub fn parse_user_at_host(args: &[String]) -> Option<String> {
     let mut user = None;
     let mut index = 1;
@@ -346,7 +478,10 @@ pub fn parse_user_at_host(args: &[String]) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_user_at_host, Cli};
+    use super::{
+        extract_ssh_config_path, find_ssh_destination, parse_ssh_g_output, parse_user_at_host,
+        resolve_via_ssh_config, Cli,
+    };
 
     fn parse_ok(args: &[&str]) -> Cli {
         let owned = args
@@ -482,6 +617,157 @@ mod tests {
         ];
 
         assert_eq!(parse_user_at_host(&args).as_deref(), Some("user@host"));
+    }
+
+    #[test]
+    fn test_find_ssh_destination_simple_alias() {
+        let args = vec!["ssh".to_string(), "myalias".to_string()];
+
+        assert_eq!(find_ssh_destination(&args).as_deref(), Some("myalias"));
+    }
+
+    #[test]
+    fn test_find_ssh_destination_with_w_flag() {
+        let args = vec![
+            "ssh".to_string(),
+            "-W".to_string(),
+            "%h:%p".to_string(),
+            "gw".to_string(),
+        ];
+
+        assert_eq!(find_ssh_destination(&args).as_deref(), Some("gw"));
+    }
+
+    #[test]
+    fn test_find_ssh_destination_with_multiple_value_flags() {
+        let args = vec![
+            "ssh".to_string(),
+            "-o".to_string(),
+            "Foo=bar".to_string(),
+            "-p".to_string(),
+            "22".to_string(),
+            "host".to_string(),
+        ];
+
+        assert_eq!(find_ssh_destination(&args).as_deref(), Some("host"));
+    }
+
+    #[test]
+    fn test_find_ssh_destination_with_mixed_flags() {
+        let args = vec![
+            "ssh".to_string(),
+            "-p".to_string(),
+            "2222".to_string(),
+            "-i".to_string(),
+            "~/.ssh/id".to_string(),
+            "-W".to_string(),
+            "%h:%p".to_string(),
+            "gw".to_string(),
+        ];
+
+        assert_eq!(find_ssh_destination(&args).as_deref(), Some("gw"));
+    }
+
+    #[test]
+    fn test_find_ssh_destination_missing_destination() {
+        let args = vec!["ssh".to_string()];
+
+        assert_eq!(find_ssh_destination(&args), None);
+    }
+
+    #[test]
+    fn test_find_ssh_destination_no_destination() {
+        let args = vec!["ssh".to_string(), "-v".to_string(), "-N".to_string()];
+
+        assert_eq!(find_ssh_destination(&args), None);
+    }
+
+    #[test]
+    fn test_extract_ssh_config_path_present() {
+        let args = vec![
+            "ssh".to_string(),
+            "-F".to_string(),
+            "/custom/config".to_string(),
+            "myalias".to_string(),
+        ];
+
+        assert_eq!(
+            extract_ssh_config_path(&args).as_deref(),
+            Some("/custom/config")
+        );
+    }
+
+    #[test]
+    fn test_extract_ssh_config_path_absent() {
+        let args = vec!["ssh".to_string(), "myalias".to_string()];
+
+        assert_eq!(extract_ssh_config_path(&args), None);
+    }
+
+    #[test]
+    fn test_extract_ssh_config_path_after_other_flags() {
+        let args = vec![
+            "ssh".to_string(),
+            "-o".to_string(),
+            "Foo=bar".to_string(),
+            "-F".to_string(),
+            "/tmp/cfg".to_string(),
+            "host".to_string(),
+        ];
+
+        assert_eq!(extract_ssh_config_path(&args).as_deref(), Some("/tmp/cfg"));
+    }
+
+    #[test]
+    fn test_parse_ssh_g_output_normal() {
+        let output = "user testuser\nhostname 10.0.0.1\nport 22\n";
+
+        assert_eq!(
+            parse_ssh_g_output(output),
+            Some(("testuser".to_string(), "10.0.0.1".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_parse_ssh_g_output_missing_user() {
+        let output = "hostname 10.0.0.1\nport 22\n";
+
+        assert_eq!(parse_ssh_g_output(output), None);
+    }
+
+    #[test]
+    fn test_parse_ssh_g_output_missing_hostname() {
+        let output = "user testuser\nport 22\n";
+
+        assert_eq!(parse_ssh_g_output(output), None);
+    }
+
+    #[test]
+    fn test_parse_ssh_g_output_empty() {
+        assert_eq!(parse_ssh_g_output(""), None);
+    }
+
+    #[test]
+    fn test_parse_ssh_g_output_real_world_output() {
+        let output = concat!(
+            "host gw\n",
+            "user admin\n",
+            "hostname gateway.local\n",
+            "port 22\n",
+            "canonicalizehostname false\n",
+        );
+
+        assert_eq!(
+            parse_ssh_g_output(output),
+            Some(("admin".to_string(), "gateway.local".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_resolve_rejects_non_ssh() {
+        let args = vec!["scp".to_string(), "myalias".to_string()];
+
+        assert_eq!(resolve_via_ssh_config(&args, false), None);
     }
 
     #[test]

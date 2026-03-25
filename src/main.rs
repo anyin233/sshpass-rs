@@ -226,11 +226,13 @@ fn resolve_password(cli: &Cli, verbose: bool) -> Result<secrecy::SecretString, S
         }
         PasswordResolver::Keychain(key.clone())
     } else if cli.use_keychain {
-        let key = cli::parse_user_at_host(&cli.command).ok_or_else(|| {
-            SshpassError::PasswordSource(
-                "unable to derive keychain key from wrapped SSH arguments".to_string(),
-            )
-        })?;
+        let key = cli::parse_user_at_host(&cli.command)
+            .or_else(|| cli::resolve_via_ssh_config(&cli.command, verbose))
+            .ok_or_else(|| {
+                SshpassError::PasswordSource(
+                    "unable to derive keychain key from wrapped SSH arguments".to_string(),
+                )
+            })?;
         if verbose {
             eprintln!("SSHPASSX: using keychain with key '{}'", key);
         }
