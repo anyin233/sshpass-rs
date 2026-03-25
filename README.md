@@ -195,6 +195,43 @@ sshpassx --list
 sshpassx --delete user@host
 ```
 
+### SSH Config Integration
+
+Use sshpassx as a `ProxyCommand` in `~/.ssh/config` to automate password-based jump hosts.
+
+**Important:** When sshpassx cannot auto-derive `user@host` from the SSH arguments (e.g. with `-W`, aliases, or non-standard invocations), use `--key` to specify the keychain key explicitly.
+
+```sh
+# First, store the jump host password
+sshpassx --store user@gateway.example.com
+```
+
+```
+# ~/.ssh/config
+
+# Jump host that requires keyboard-interactive auth
+Host gw
+  Hostname gateway.example.com
+  User user
+  PreferredAuthentications keyboard-interactive
+  PubkeyAuthentication no
+
+# Internal hosts via the jump host
+Host internal-server1
+  HostName 10.0.0.1
+  User admin
+  ProxyCommand sshpassx -k --key user@gateway.example.com ssh -W %h:%p gw
+  GSSAPIAuthentication no
+
+Host internal-server2
+  HostName 10.0.0.2
+  User admin
+  ProxyCommand sshpassx -k --key user@gateway.example.com ssh -W %h:%p gw
+  GSSAPIAuthentication no
+```
+
+> **Why `--key` is needed here:** The wrapped command `ssh -W %h:%p gw` uses a Host alias and `-W` flag, so sshpassx cannot auto-derive a `user@host` key. Without `--key`, you'll get: `password source error: unable to derive keychain key from wrapped SSH arguments`.
+
 ### Advanced
 
 ```sh
