@@ -420,6 +420,111 @@ fn test_verbose_standalone_list() {
         .stderr(predicate::str::contains("SSHPASSX: listing stored keys"));
 }
 
+fn setup_mock_ssh_in_path() -> (TempDir, String) {
+    let dir = tempfile::tempdir().expect("expected tempdir for mock ssh");
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let mock_src = format!("{}/tests/fixtures/mock_ssh.sh", manifest_dir);
+    let mock_dst = dir.path().join("ssh");
+    std::os::unix::fs::symlink(&mock_src, &mock_dst)
+        .expect("expected symlink creation for mock ssh");
+    let path = format!(
+        "{}:{}",
+        dir.path().display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    (dir, path)
+}
+
+// GIVEN mock_ssh in PATH + -v -k ssh myalias, THEN stderr shows alias resolution messages
+#[test]
+fn test_alias_resolution_verbose() {
+    let (_ssh_dir, ssh_path) = setup_mock_ssh_in_path();
+    let (_kc_dir, keychain_file) = temp_keychain_env();
+
+    Command::cargo_bin("sshpassx")
+        .expect("binary exists")
+        .env("SSHPASSX_TEST_KEYCHAIN_FILE", &keychain_file)
+        .env("PATH", &ssh_path)
+        .args(["-v", "-k", "ssh", "myalias"])
+        .assert()
+        .stderr(predicate::str::contains(
+            "SSHPASSX: resolving SSH alias 'myalias' via ssh -G",
+        ))
+        .stderr(predicate::str::contains(
+            "SSHPASSX: resolved alias 'myalias' to keychain key 'testuser@10.0.0.1'",
+        ));
+}
+
+// GIVEN mock_ssh in PATH + -v -k ssh -W %h:%p gw, THEN stderr shows gw resolved to admin@gateway.local
+#[test]
+fn test_w_flag_alias_resolution_verbose() {
+    let (_ssh_dir, ssh_path) = setup_mock_ssh_in_path();
+    let (_kc_dir, keychain_file) = temp_keychain_env();
+
+    Command::cargo_bin("sshpassx")
+        .expect("binary exists")
+        .env("SSHPASSX_TEST_KEYCHAIN_FILE", &keychain_file)
+        .env("PATH", &ssh_path)
+        .args(["-v", "-k", "ssh", "-W", "%h:%p", "gw"])
+        .assert()
+        .stderr(predicate::str::contains(
+            "SSHPASSX: resolved alias 'gw' to keychain key 'admin@gateway.local'",
+        ));
+}
+
+// GIVEN --key explicit-key, WHEN ssh myalias, THEN uses explicit key and does NOT resolve alias
+#[test]
+fn test_key_override_bypasses_resolution() {
+    let (_ssh_dir, ssh_path) = setup_mock_ssh_in_path();
+    let (_kc_dir, keychain_file) = temp_keychain_env();
+
+    Command::cargo_bin("sshpassx")
+        .expect("binary exists")
+        .env("SSHPASSX_TEST_KEYCHAIN_FILE", &keychain_file)
+        .env("PATH", &ssh_path)
+        .args(["-v", "--key", "explicit-key", "ssh", "myalias"])
+        .assert()
+        .stderr(predicate::str::contains(
+            "SSHPASSX: using keychain with key 'explicit-key'",
+        ))
+        .stderr(predicate::str::contains("resolving SSH alias").not());
+}
+
+// GIVEN -v -k ssh user@host (direct user@host), THEN uses key directly without alias resolution
+#[test]
+fn test_direct_user_at_host_bypasses_resolution() {
+    let (_ssh_dir, ssh_path) = setup_mock_ssh_in_path();
+    let (_kc_dir, keychain_file) = temp_keychain_env();
+
+    Command::cargo_bin("sshpassx")
+        .expect("binary exists")
+        .env("SSHPASSX_TEST_KEYCHAIN_FILE", &keychain_file)
+        .env("PATH", &ssh_path)
+        .args(["-v", "-k", "ssh", "user@host"])
+        .assert()
+        .stderr(predicate::str::contains(
+            "SSHPASSX: using keychain with key 'user@host'",
+        ))
+        .stderr(predicate::str::contains("resolving SSH alias").not());
+}
+
+// GIVEN -v -k ssh -F /tmp/custom.cfg custom-alias, THEN resolves custom-alias to customuser@custom.example.com
+#[test]
+fn test_f_flag_propagation_in_resolution() {
+    let (_ssh_dir, ssh_path) = setup_mock_ssh_in_path();
+    let (_kc_dir, keychain_file) = temp_keychain_env();
+
+    Command::cargo_bin("sshpassx")
+        .expect("binary exists")
+        .env("SSHPASSX_TEST_KEYCHAIN_FILE", &keychain_file)
+        .env("PATH", &ssh_path)
+        .args(["-v", "-k", "ssh", "-F", "/tmp/custom.cfg", "custom-alias"])
+        .assert()
+        .stderr(predicate::str::contains(
+            "SSHPASSX: resolved alias 'custom-alias' to keychain key 'customuser@custom.example.com'",
+        ));
+}
+
 // GIVEN -v -p SUPERSECRET_XYZ_123, WHEN fake_ssh --mode success, THEN secret NOT in stderr
 #[test]
 fn test_verbose_no_secret_leak() {
