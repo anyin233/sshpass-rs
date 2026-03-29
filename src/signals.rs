@@ -29,6 +29,7 @@ pub const CTRL_Z_BYTE: u8 = 0x1a;
 pub struct SignalHandler {
     master_fd: RawFd,
     child_pid: Pid,
+    verbose: bool,
     sigint: Arc<AtomicBool>,
     sigtstp: Arc<AtomicBool>,
     sigterm: Arc<AtomicBool>,
@@ -39,10 +40,11 @@ pub struct SignalHandler {
 
 impl SignalHandler {
     /// Creates a new `SignalHandler` for the given PTY master fd and child PID.
-    pub fn new(master_fd: RawFd, child_pid: i32) -> Self {
+    pub fn new(master_fd: RawFd, child_pid: i32, verbose: bool) -> Self {
         Self {
             master_fd,
             child_pid: Pid::from_raw(child_pid),
+            verbose,
             sigint: Arc::new(AtomicBool::new(false)),
             sigtstp: Arc::new(AtomicBool::new(false)),
             sigterm: Arc::new(AtomicBool::new(false)),
@@ -84,7 +86,7 @@ impl SignalHandler {
         }
 
         if self.sigwinch.swap(false, Ordering::Relaxed) {
-            self.propagate_winsize()?;
+            let _ = self.propagate_winsize(libc::STDIN_FILENO);
         }
 
         // Intentionally empty — flag being set is sufficient to break poll/select loop
@@ -105,17 +107,38 @@ impl SignalHandler {
         Ok(())
     }
 
-    /// Reads terminal size via `TIOCGWINSZ` on stdin, sets it on master_fd via `TIOCSWINSZ`.
-    fn propagate_winsize(&self) -> io::Result<()> {
+    /// Reads terminal size via `TIOCGWINSZ` on `terminal_fd`, sets it on master_fd via `TIOCSWINSZ`.
+    ///
+    /// All errors are non-fatal: if either ioctl fails, the error is optionally logged and
+    /// `Ok(())` is returned. This prevents SIGWINCH from terminating the session when stdin
+    /// is not a terminal (e.g., in tests or when running non-interactively).
+    fn propagate_winsize(&self, terminal_fd: RawFd) -> io::Result<()> {
+        // Safety: isatty is safe to call on any fd value
+        if unsafe { libc::isatty(terminal_fd) } != 1 {
+            return Ok(());
+        }
+
         let mut winsize: libc::winsize = unsafe { std::mem::zeroed() };
-        let ret = unsafe { libc::ioctl(libc::STDIN_FILENO, libc::TIOCGWINSZ, &mut winsize) };
+        let ret = unsafe { libc::ioctl(terminal_fd, libc::TIOCGWINSZ, &mut winsize) };
         if ret == -1 {
-            return Err(io::Error::last_os_error());
+            if self.verbose {
+                eprintln!(
+                    "SSHPASSX: failed to propagate terminal size: {}",
+                    io::Error::last_os_error()
+                );
+            }
+            return Ok(());
         }
 
         let ret = unsafe { libc::ioctl(self.master_fd, libc::TIOCSWINSZ, &winsize) };
         if ret == -1 {
-            return Err(io::Error::last_os_error());
+            if self.verbose {
+                eprintln!(
+                    "SSHPASSX: failed to propagate terminal size: {}",
+                    io::Error::last_os_error()
+                );
+            }
+            return Ok(());
         }
 
         Ok(())
@@ -134,7 +157,7 @@ mod tests {
 
     #[test]
     fn test_signal_handler_creation() {
-        let handler = SignalHandler::new(3, 1234);
+        let handler = SignalHandler::new(3, 1234, false);
         assert_eq!(handler.master_fd, 3);
         assert_eq!(handler.child_pid, Pid::from_raw(1234));
         assert!(!handler.sigint.load(Ordering::Relaxed));
@@ -147,14 +170,14 @@ mod tests {
 
     #[test]
     fn test_register_all_no_panic() {
-        let handler = SignalHandler::new(3, 1234);
+        let handler = SignalHandler::new(3, 1234, false);
         let result = handler.register_all();
         assert!(result.is_ok(), "register_all() failed: {:?}", result.err());
     }
 
     #[test]
     fn test_sigwinch_flag() {
-        let handler = SignalHandler::new(3, 1234);
+        let handler = SignalHandler::new(3, 1234, false);
 
         assert!(!handler.sigwinch.load(Ordering::Relaxed));
 
@@ -168,7 +191,7 @@ mod tests {
 
     #[test]
     fn test_sigchld_received_clears_flag() {
-        let handler = SignalHandler::new(3, 1234);
+        let handler = SignalHandler::new(3, 1234, false);
 
         assert!(!handler.sigchld_received());
 
@@ -180,7 +203,7 @@ mod tests {
 
     #[test]
     fn test_all_flags_independent() {
-        let handler = SignalHandler::new(3, 1234);
+        let handler = SignalHandler::new(3, 1234, false);
 
         handler.sigint.store(true, Ordering::Relaxed);
         assert!(handler.sigint.load(Ordering::Relaxed));
@@ -193,7 +216,7 @@ mod tests {
 
     #[test]
     fn test_propagate_winsize_invalid_master_fd() {
-        let handler = SignalHandler::new(-1, 1234);
+        let handler = SignalHandler::new(-1, 1234, false);
         handler.sigwinch.store(true, Ordering::Relaxed);
         let result = handler.check_and_handle();
         assert!(result.is_ok());
@@ -201,7 +224,7 @@ mod tests {
 
     #[test]
     fn test_propagate_winsize_sigwinch_flag_cleared() {
-        let handler = SignalHandler::new(-1, 1234);
+        let handler = SignalHandler::new(-1, 1234, false);
         handler.sigwinch.store(true, Ordering::Relaxed);
         let _ = handler.check_and_handle();
         assert!(!handler.sigwinch.load(Ordering::Relaxed));
@@ -209,7 +232,7 @@ mod tests {
 
     #[test]
     fn test_check_and_handle_no_signals_ok() {
-        let handler = SignalHandler::new(-1, 1234);
+        let handler = SignalHandler::new(-1, 1234, false);
         let result = handler.check_and_handle();
         assert!(result.is_ok());
     }

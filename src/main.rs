@@ -67,7 +67,7 @@ fn run() -> i32 {
         return report_runtime_error(err);
     }
 
-    let signal_handler = match build_signal_handler(&mut pty_session) {
+    let signal_handler = match build_signal_handler(&mut pty_session, cli.verbose) {
         Ok(handler) => handler,
         Err(err) => return report_runtime_error(err),
     };
@@ -281,13 +281,16 @@ fn normalize_command(command: &[String]) -> Result<Vec<String>, SshpassError> {
 ///
 /// Returns:
 /// - A registered signal handler ready for the PTY I/O loop.
-fn build_signal_handler(session: &mut PtySession) -> Result<signals::SignalHandler, SshpassError> {
+fn build_signal_handler(
+    session: &mut PtySession,
+    verbose: bool,
+) -> Result<signals::SignalHandler, SshpassError> {
     let child_pid = session
         .child_process_id()
         .ok_or_else(|| SshpassError::ChildSpawn("PTY child pid is unavailable".to_string()))?;
     let child_pid = i32::try_from(child_pid)
         .map_err(|_| SshpassError::ChildSpawn("PTY child pid exceeds i32 range".to_string()))?;
-    let handler = signals::SignalHandler::new(session.master_fd()?, child_pid);
+    let handler = signals::SignalHandler::new(session.master_fd()?, child_pid, verbose);
     handler.register_all().map_err(SshpassError::Io)?;
     Ok(handler)
 }
