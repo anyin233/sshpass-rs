@@ -190,4 +190,27 @@ mod tests {
         assert!(!handler.sigwinch.load(Ordering::Relaxed));
         assert!(!handler.sigchld.load(Ordering::Relaxed));
     }
+
+    #[test]
+    fn test_propagate_winsize_invalid_master_fd() {
+        let handler = SignalHandler::new(-1, 1234);
+        handler.sigwinch.store(true, Ordering::Relaxed);
+        let result = handler.check_and_handle();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_propagate_winsize_sigwinch_flag_cleared() {
+        let handler = SignalHandler::new(-1, 1234);
+        handler.sigwinch.store(true, Ordering::Relaxed);
+        let _ = handler.check_and_handle();
+        assert!(!handler.sigwinch.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn test_check_and_handle_no_signals_ok() {
+        let handler = SignalHandler::new(-1, 1234);
+        let result = handler.check_and_handle();
+        assert!(result.is_ok());
+    }
 }
