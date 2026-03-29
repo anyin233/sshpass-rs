@@ -1,6 +1,6 @@
 [package]
 name = "sshpassx"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 authors = ["cydia2001 <cydia2001@duck.com>"]
 description = "A secure, drop-in Rust replacement for sshpass with macOS Keychain and 1Password integration"
